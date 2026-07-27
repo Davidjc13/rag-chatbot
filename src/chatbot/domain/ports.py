@@ -13,6 +13,7 @@ from chatbot.domain.documents import (
     RetrievedChunk,
 )
 from chatbot.domain.entities import Conversation, Message
+from chatbot.domain.llm_stream import LLMDelta
 
 
 class LLMPort(ABC):
@@ -33,9 +34,9 @@ class LLMPort(ABC):
         messages: list[Message],
         *,
         system_prompt: str | None = None,
-    ) -> AsyncIterator[str]:
-        """Genera la respuesta del asistente en streaming (deltas de texto)."""
-        yield ""
+    ) -> AsyncIterator[LLMDelta]:
+        """Genera la respuesta del asistente en streaming (deltas tipados)."""
+        yield LLMDelta("")
 
     @abstractmethod
     async def health_check(self) -> bool:

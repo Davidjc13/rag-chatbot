@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from uuid import UUID
 
 from chatbot.domain.documents import RetrievedChunk
 from chatbot.domain.entities import ChatReply, Conversation, Message, Role
@@ -35,23 +36,30 @@ class StreamToken:
 
 
 @dataclass(frozen=True, slots=True)
+class StreamThinking:
+    content: str
+
+
+@dataclass(frozen=True, slots=True)
 class StreamDone:
     conversation_id: str
 
 
-StreamEvent = StreamMeta | StreamToken | StreamDone
+StreamEvent = StreamMeta | StreamToken | StreamThinking | StreamDone
 
 _CITATION_INSTRUCTIONS = (
-    "Cuando uses información de un fragmento, cita la fuente en línea con "
-    "exactamente este formato (sin alterar los campos ni añadir espacios extra "
-    "alrededor del signo = salvo el de index): "
+    "Cuando uses información de un documento, cítalo en línea una sola vez "
+    "con exactamente este formato (sin alterar los campos ni añadir espacios "
+    "extra alrededor del signo = salvo el de index): "
     "<index = N, source=rag, title=NOMBRE_ARCHIVO, id=DOCUMENT_ID>. "
-    "Usa el índice y los metadatos indicados en cada fragmento. "
-    "No inventes índices, títulos ni ids."
+    "Cada documento tiene un único índice: no repitas la misma cita ni cites "
+    "el mismo id más de una vez. No inventes índices, títulos ni ids."
 )
 
 _FALLBACK_SYSTEM = (
-    "Eres un asistente de documentos. Responde solo con el contexto RAG.\n\n{context}"
+    "Eres un asistente de documentos. Responde solo con el contexto RAG. "
+    "Si razonas internamente, hazlo de forma breve (pocas frases) y luego "
+    "da la respuesta final al usuario.\n\n{context}"
 )
 _FALLBACK_USER = "{question}"
 
@@ -193,10 +201,13 @@ class ChatService:
             llm_messages,
             system_prompt=system_prompt,
         ):
-            if not delta:
+            if not delta.text:
                 continue
-            parts.append(delta)
-            yield StreamToken(content=delta)
+            if delta.kind == "thinking":
+                yield StreamThinking(content=delta.text)
+                continue
+            parts.append(delta.text)
+            yield StreamToken(content=delta.text)
 
         full_text = "".join(parts).strip()
         if not full_text:
@@ -216,12 +227,21 @@ class ChatService:
         return conversation
 
     async def _resolve_conversation(self, conversation_id: str | None) -> Conversation:
-        if conversation_id is None:
+        if conversation_id is None or not conversation_id.strip():
             return Conversation()
 
-        conversation = await self._repository.get(conversation_id)
+        cid = conversation_id.strip()
+        try:
+            UUID(cid)
+        except ValueError as exc:
+            raise ValidationError(
+                "conversation_id debe ser un UUID válido generado por el cliente"
+            ) from exc
+
+        conversation = await self._repository.get(cid)
         if conversation is None:
-            raise ConversationNotFoundError(conversation_id)
+            # El frontend genera el id; si aún no existe en BD, se crea.
+            return Conversation(id=cid)
         return conversation
 
     async def _retrieve(self, query: str) -> list[RetrievedChunk]:
@@ -242,6 +262,12 @@ class ChatService:
         user_template = await self._prompts.get(PROMPT_USER_MESSAGE) or _FALLBACK_USER
 
         system_prompt = system_template.replace("{context}", context)
+        if "razonamiento breve" not in system_prompt.lower():
+            system_prompt = (
+                system_prompt.rstrip()
+                + "\n\nSi razonas internamente antes de responder, "
+                "hazlo de forma breve (pocas frases) y luego escribe la respuesta."
+            )
         question = ""
         if conversation.messages and conversation.messages[-1].role == Role.USER:
             question = conversation.messages[-1].content
@@ -257,22 +283,47 @@ class ChatService:
         return system_prompt, history
 
     @staticmethod
+    def _document_index_map(
+        retrieved: list[RetrievedChunk],
+    ) -> dict[str, tuple[int, str]]:
+        """Asigna un índice único por document_id (orden de primera aparición)."""
+        mapping: dict[str, tuple[int, str]] = {}
+        next_index = 1
+        for item in retrieved:
+            doc_id = item.chunk.document_id
+            if doc_id in mapping:
+                continue
+            filename = str(item.chunk.metadata.get("filename", "documento"))
+            mapping[doc_id] = (next_index, filename)
+            next_index += 1
+        return mapping
+
+    @staticmethod
     def _build_context(retrieved: list[RetrievedChunk]) -> str:
         if not retrieved:
             return "(Sin fragmentos relevantes recuperados.)"
 
+        doc_map = ChatService._document_index_map(retrieved)
         parts = [
             _CITATION_INSTRUCTIONS,
             "",
+            "Documentos (cita cada uno como máximo una vez):",
         ]
-        for index, item in enumerate(retrieved, start=1):
-            filename = str(item.chunk.metadata.get("filename", "documento"))
+        for doc_id, (index, filename) in doc_map.items():
+            citation = (
+                f"<index = {index}, source=rag, title={filename}, id={doc_id}>"
+            )
+            parts.append(f"- {citation}")
+        parts.append("")
+
+        for item in retrieved:
             doc_id = item.chunk.document_id
+            index, filename = doc_map[doc_id]
             citation = (
                 f"<index = {index}, source=rag, title={filename}, id={doc_id}>"
             )
             parts.append(
-                f"[Fragmento {index} | score={item.score:.3f} | cita={citation}]"
+                f"[Fragmento doc={index} | score={item.score:.3f} | cita={citation}]"
             )
             parts.append(item.chunk.content)
             parts.append("")
@@ -283,13 +334,15 @@ class ChatService:
         retrieved: list[RetrievedChunk],
     ) -> tuple[dict[str, str | int], ...]:
         sources: list[dict[str, str | int]] = []
-        for index, item in enumerate(retrieved, start=1):
+        for doc_id, (index, filename) in ChatService._document_index_map(
+            retrieved
+        ).items():
             sources.append(
                 {
                     "index": index,
                     "source": "rag",
-                    "title": str(item.chunk.metadata.get("filename", "documento")),
-                    "id": item.chunk.document_id,
+                    "title": filename,
+                    "id": doc_id,
                 }
             )
         return tuple(sources)

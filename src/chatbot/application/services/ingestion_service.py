@@ -55,7 +55,7 @@ class IngestionService:
             "Documento ingerido",
             extra={
                 "document_id": parsed.id,
-                "filename": name,
+                "document_filename": name,
                 "chunk_count": len(chunks),
                 "embedding_model": self._embeddings.model_name,
             },

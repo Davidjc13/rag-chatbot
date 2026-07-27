@@ -77,10 +77,24 @@ Copia `.env.example` a `.env` y ajusta:
 
 ## Desarrollo local
 
+Atajos con Make:
+
 ```bash
-uv sync --extra dev
-ollama pull qwen2.5:3b
+make setup      # .env + uv sync
+make models     # ollama pull (host)
+make up         # Postgres Docker + uvicorn local
+make up-docker  # stack completo en Docker
+make test
+make help
+```
+
+Equivalente manual (Ollama/app en host; Postgres en Docker):
+
+```bash
+docker compose --profile db up -d postgres
+ollama pull qwen3:4b
 ollama pull nomic-embed-text
+uv sync --extra dev
 cp .env.example .env
 uv run uvicorn chatbot.main:app --reload --host 0.0.0.0 --port 8000
 ```
@@ -124,28 +138,30 @@ uv run pylint src/chatbot
 ## Docker Compose
 
 ```bash
-docker compose up --build
+make up-docker
+# o: docker compose --profile docker up --build
 ```
 
 Cambia modelos con:
 
 ```bash
-LITELLM_MODEL=ollama/llama3.2:3b OLLAMA_MODEL=llama3.2:3b docker compose up --build
+LITELLM_MODEL=ollama/llama3.2:3b OLLAMA_MODEL=llama3.2:3b make up-docker
 ```
 
 ## Kubernetes
 
-1. Construye e importa la imagen:
+```bash
+make up-k8s      # build imagen + kubectl apply
+make k8s-status
+make k8s-pf      # port-forward → http://localhost:8000
+make down-k8s
+```
+
+Manual:
 
 ```bash
 docker build -t rag-chatbot:0.1.0 .
-```
-
-2. Aplica manifiestos (`bash k8s/apply.sh` o `kubectl apply -f k8s/...`).
-
-3. Port-forward:
-
-```bash
+bash k8s/apply.sh
 kubectl -n rag-chatbot port-forward svc/chatbot 8000:8000
 ```
 

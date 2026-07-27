@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 import pytest
 
 from chatbot.application.services.chat_service import ChatService
 from chatbot.domain.documents import DocumentChunk
-from chatbot.domain.exceptions import ConversationNotFoundError, ValidationError
+from chatbot.domain.exceptions import ValidationError
 from chatbot.infrastructure.adapters.llm.embedding_adapter import MockEmbeddingAdapter
 from chatbot.infrastructure.adapters.llm.mock_adapter import MockLLMAdapter
 from chatbot.infrastructure.adapters.persistence.memory_repository import (
@@ -66,9 +68,20 @@ async def test_empty_message_raises(chat_service: ChatService) -> None:
 
 
 @pytest.mark.asyncio
-async def test_missing_conversation_raises(chat_service: ChatService) -> None:
-    with pytest.raises(ConversationNotFoundError):
-        await chat_service.chat("Hola", conversation_id="no-existe")
+async def test_chat_accepts_client_generated_conversation_id(
+    chat_service: ChatService,
+) -> None:
+    cid = str(uuid4())
+    reply = await chat_service.chat("Hola", conversation_id=cid)
+    assert reply.conversation_id == cid
+    conversation = await chat_service.get_conversation(cid)
+    assert conversation.messages[0].content == "Hola"
+
+
+@pytest.mark.asyncio
+async def test_invalid_conversation_id_raises(chat_service: ChatService) -> None:
+    with pytest.raises(ValidationError):
+        await chat_service.chat("Hola", conversation_id="no-es-uuid")
 
 
 @pytest.mark.asyncio

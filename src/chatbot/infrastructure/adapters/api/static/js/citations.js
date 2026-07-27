@@ -20,19 +20,18 @@ export function splitIncompleteCitation(text) {
 
 export function extractCitations(text) {
   const refs = [];
-  const seen = new Set();
+  const seenIds = new Set();
   CITATION_RE.lastIndex = 0;
   let match;
   while ((match = CITATION_RE.exec(text)) !== null) {
-    const index = Number(match[1]);
-    const key = `${index}:${match[4].trim()}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    const id = match[4].trim();
+    if (seenIds.has(id)) continue;
+    seenIds.add(id);
     refs.push({
-      index,
+      index: Number(match[1]),
       source: match[2].trim(),
       title: match[3].trim(),
-      id: match[4].trim(),
+      id,
     });
   }
   return refs;
@@ -49,21 +48,27 @@ export function escapeHtml(value) {
 
 /**
  * Convierte texto con citas en HTML seguro.
- * Las citas se muestran como el número de índice (p.ej. ¹ → "1" en superíndice).
+ * Un mismo documento (id) solo se muestra una vez como superíndice.
  */
 export function renderCitedHtml(text) {
   const { complete, pending } = splitIncompleteCitation(text);
   const refs = extractCitations(complete);
+  const idToIndex = new Map(refs.map((ref) => [ref.id, ref.index]));
+  const renderedIds = new Set();
   const parts = [];
   let last = 0;
   CITATION_RE.lastIndex = 0;
   let match;
   while ((match = CITATION_RE.exec(complete)) !== null) {
     parts.push(escapeHtml(complete.slice(last, match.index)));
-    const index = Number(match[1]);
-    parts.push(
-      `<sup class="cite"><a href="#ref-${index}" data-cite="${index}">${index}</a></sup>`,
-    );
+    const id = match[4].trim();
+    const index = idToIndex.get(id) ?? Number(match[1]);
+    if (!renderedIds.has(id)) {
+      renderedIds.add(id);
+      parts.push(
+        `<sup class="cite"><a href="#ref-${index}" data-cite="${index}">${index}</a></sup>`,
+      );
+    }
     last = match.index + match[0].length;
   }
   parts.push(escapeHtml(complete.slice(last)));

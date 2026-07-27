@@ -108,4 +108,4 @@ async def test_mock_generate_stream_chunks() -> None:
         )
     ]
     assert len(chunks) >= 2
-    assert "hola" in "".join(chunks)
+    assert "hola" in "".join(chunk.text for chunk in chunks)

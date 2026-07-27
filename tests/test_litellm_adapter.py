@@ -10,6 +10,7 @@ from litellm.exceptions import APIConnectionError, Timeout
 
 from chatbot.domain.entities import Message, Role
 from chatbot.domain.exceptions import LLMProviderError, LLMUnavailableError
+from chatbot.domain.llm_stream import LLMDelta
 from chatbot.infrastructure.adapters.llm.litellm_adapter import LiteLLMAdapter
 
 
@@ -102,7 +103,10 @@ async def test_generate_stream_yields_deltas(adapter: LiteLLMAdapter) -> None:
             )
         ]
 
-    assert chunks == ["Ho", "la"]
+    assert chunks == [
+        LLMDelta(text="Ho", kind="content"),
+        LLMDelta(text="la", kind="content"),
+    ]
 
 
 @pytest.mark.asyncio

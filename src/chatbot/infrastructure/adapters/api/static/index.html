@@ -23,12 +23,25 @@
       </header>
 
       <div class="chat-layout">
+        <aside class="conversations-panel" aria-label="Conversaciones">
+          <div class="conversations-header">
+            <h2>Conversaciones</h2>
+            <button type="button" id="new-chat-btn" class="secondary compact">
+              Nueva
+            </button>
+          </div>
+          <p id="conversations-empty" class="conversations-empty">
+            Aún no hay conversaciones. Escribe un mensaje o pulsa Nueva.
+          </p>
+          <ul id="conversations-list" class="conversations-list"></ul>
+        </aside>
+
         <main class="panel">
           <div id="chat-log" class="chat-log" aria-live="polite">
             <div id="empty-hint" class="empty-hint">
               <strong>Conversación actual</strong>
-              Pregunta sobre los documentos indexados. El historial solo vive en esta sesión;
-              no se guarda de forma permanente.
+              Pregunta sobre los documentos indexados. Elige o crea una conversación
+              en el panel izquierdo.
             </div>
           </div>
 
@@ -44,7 +57,6 @@
               placeholder="Escribe tu pregunta…"
               required
             ></textarea>
-            <button type="button" id="new-chat-btn" class="secondary">Nueva</button>
             <button type="submit" id="send-btn">Enviar</button>
           </form>
         </main>
@@ -52,7 +64,7 @@
         <aside class="refs-panel" aria-label="Referencias">
           <h2>Referencias</h2>
           <p id="refs-empty" class="refs-empty">
-            Las citas del asistente aparecerán aquí (índice, título e id del documento).
+            Las citas del asistente aparecerán aquí.
           </p>
           <ol id="refs-list" class="refs-list"></ol>
         </aside>

@@ -1,7 +1,14 @@
-import { streamChat } from "./api.js";
+import { getConversation, streamChat } from "./api.js";
 import { renderCitedHtml } from "./citations.js";
-
-const STORAGE_KEY = "rag_chat_conversation_id";
+import {
+  createConversationId,
+  getActiveConversationId,
+  loadConversationIndex,
+  removeConversation,
+  setActiveConversationId,
+  setTitleFromFirstQuery,
+  upsertConversationMeta,
+} from "./conversations.js";
 
 const logEl = document.getElementById("chat-log");
 const formEl = document.getElementById("chat-form");
@@ -12,8 +19,10 @@ const statusEl = document.getElementById("status");
 const emptyEl = document.getElementById("empty-hint");
 const refsListEl = document.getElementById("refs-list");
 const refsEmptyEl = document.getElementById("refs-empty");
+const conversationsListEl = document.getElementById("conversations-list");
+const conversationsEmptyEl = document.getElementById("conversations-empty");
 
-let conversationId = sessionStorage.getItem(STORAGE_KEY) || null;
+let conversationId = getActiveConversationId();
 let streaming = false;
 /** @type {Map<string, {index:number, source:string, title:string, id:string}>} */
 const references = new Map();
@@ -27,16 +36,49 @@ function hideEmpty() {
   if (emptyEl) emptyEl.hidden = true;
 }
 
-function refKey(ref) {
-  return `${ref.index}:${ref.id}`;
+function showEmpty() {
+  if (emptyEl) emptyEl.hidden = false;
+}
+
+function escapeText(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function ensureActiveConversation() {
+  if (conversationId) return conversationId;
+  conversationId = createConversationId();
+  setActiveConversationId(conversationId);
+  upsertConversationMeta({ id: conversationId });
+  renderConversationsPanel();
+  return conversationId;
+}
+
+function startNewConversation() {
+  conversationId = createConversationId();
+  setActiveConversationId(conversationId);
+  upsertConversationMeta({ id: conversationId });
+  clearChatView();
+  renderConversationsPanel();
+  inputEl.focus();
+}
+
+function clearChatView() {
+  logEl.querySelectorAll(".msg").forEach((el) => el.remove());
+  references.clear();
+  renderReferencesPanel();
+  showEmpty();
+  setStatus("");
 }
 
 function upsertReferences(refs) {
   let changed = false;
   for (const ref of refs) {
-    const key = refKey(ref);
-    if (!references.has(key)) {
-      references.set(key, ref);
+    if (!references.has(ref.id)) {
+      references.set(ref.id, ref);
       changed = true;
     }
   }
@@ -65,12 +107,49 @@ function renderReferencesPanel() {
   }
 }
 
-function escapeText(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
+function renderConversationsPanel() {
+  if (!conversationsListEl) return;
+  const items = loadConversationIndex();
+  conversationsListEl.innerHTML = "";
+  if (conversationsEmptyEl) conversationsEmptyEl.hidden = items.length > 0;
+
+  for (const item of items) {
+    const li = document.createElement("li");
+    li.className = "conversation-item";
+    if (item.id === conversationId) li.classList.add("active");
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "conversation-btn";
+    btn.title = item.title;
+    btn.textContent = item.title;
+    btn.addEventListener("click", () => {
+      if (streaming || item.id === conversationId) return;
+      void switchConversation(item.id);
+    });
+
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "conversation-delete";
+    del.title = "Eliminar de la lista";
+    del.setAttribute("aria-label", "Eliminar conversación");
+    del.textContent = "×";
+    del.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (streaming) return;
+      removeConversation(item.id);
+      if (conversationId === item.id) {
+        const next = loadConversationIndex()[0];
+        if (next) void switchConversation(next.id);
+        else startNewConversation();
+      } else {
+        renderConversationsPanel();
+      }
+    });
+
+    li.append(btn, del);
+    conversationsListEl.appendChild(li);
+  }
 }
 
 function appendMessage(role, content, { error = false } = {}) {
@@ -92,7 +171,40 @@ function appendMessage(role, content, { error = false } = {}) {
   article.append(label, body);
   logEl.appendChild(article);
   logEl.scrollTop = logEl.scrollHeight;
-  return body;
+  return { article, body };
+}
+
+function ensureThinkingBlock(article) {
+  let details = article.querySelector(".thinking-block");
+  if (details) return details;
+  details = document.createElement("details");
+  details.className = "thinking-block";
+  details.open = true;
+  const summary = document.createElement("summary");
+  summary.className = "thinking-summary";
+  summary.innerHTML =
+    '<span class="thinking-label">Pensando…</span><span class="thinking-hint">ver razonamiento</span>';
+  const pre = document.createElement("pre");
+  pre.className = "thinking-body";
+  details.append(summary, pre);
+  const body = article.querySelector(".body");
+  article.insertBefore(details, body);
+  return details;
+}
+
+function appendThinking(article, chunk) {
+  const details = ensureThinkingBlock(article);
+  const pre = details.querySelector(".thinking-body");
+  pre.textContent += chunk;
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function finishThinking(article) {
+  const details = article.querySelector(".thinking-block");
+  if (!details) return;
+  details.open = false;
+  const label = details.querySelector(".thinking-label");
+  if (label) label.textContent = "Pensamiento";
 }
 
 function updateAssistantBody(bodyEl, rawText) {
@@ -102,26 +214,60 @@ function updateAssistantBody(bodyEl, rawText) {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-function clearChat() {
-  conversationId = null;
-  sessionStorage.removeItem(STORAGE_KEY);
-  logEl.querySelectorAll(".msg").forEach((el) => el.remove());
-  references.clear();
-  renderReferencesPanel();
-  if (emptyEl) emptyEl.hidden = false;
-  setStatus("");
-  inputEl.focus();
+async function switchConversation(id) {
+  conversationId = id;
+  setActiveConversationId(id);
+  upsertConversationMeta({ id });
+  clearChatView();
+  renderConversationsPanel();
+  setStatus("Cargando conversación…");
+
+  try {
+    const data = await getConversation(id);
+    const messages = Array.isArray(data.messages) ? data.messages : [];
+    if (!messages.length) {
+      showEmpty();
+      setStatus("");
+      return;
+    }
+    for (const msg of messages) {
+      appendMessage(msg.role === "user" ? "user" : "assistant", msg.content);
+    }
+    const firstUser = messages.find((msg) => msg.role === "user");
+    if (firstUser?.content) {
+      setTitleFromFirstQuery(id, firstUser.content);
+      renderConversationsPanel();
+    }
+    setStatus("");
+  } catch (err) {
+    // Conversación nueva aún no persistida en el servidor.
+    if (err.status === 404) {
+      showEmpty();
+      setStatus("");
+      return;
+    }
+    setStatus(err.message || "No se pudo cargar la conversación", true);
+  }
 }
 
 newBtn.addEventListener("click", () => {
   if (streaming) return;
-  clearChat();
+  startNewConversation();
 });
 
 formEl.addEventListener("submit", async (event) => {
   event.preventDefault();
   const message = inputEl.value.trim();
   if (!message || streaming) return;
+
+  const activeId = ensureActiveConversation();
+  const meta = loadConversationIndex().find((item) => item.id === activeId);
+  if (!meta?.title || meta.title === "Nueva conversación") {
+    setTitleFromFirstQuery(activeId, message);
+  } else {
+    upsertConversationMeta({ id: activeId });
+  }
+  renderConversationsPanel();
 
   streaming = true;
   sendBtn.disabled = true;
@@ -130,41 +276,48 @@ formEl.addEventListener("submit", async (event) => {
   setStatus("Generando…");
 
   appendMessage("user", message);
-  const assistantBody = appendMessage("assistant", "");
-  assistantBody.parentElement.classList.add("typing");
+  const { article, body: assistantBody } = appendMessage("assistant", "");
+  article.classList.add("typing");
   let rawAssistant = "";
+  let sawThinking = false;
+  let sawContent = false;
 
   try {
     await streamChat({
       message,
-      conversationId,
+      conversationId: activeId,
       handlers: {
         onMeta(data) {
-          if (data.conversation_id) {
-            conversationId = data.conversation_id;
-            sessionStorage.setItem(STORAGE_KEY, conversationId);
-          }
           if (Array.isArray(data.sources)) {
             upsertReferences(data.sources);
           }
         },
+        onThinking(data) {
+          sawThinking = true;
+          setStatus("Pensando… (qwen3 puede tardar 1–3 min)");
+          appendThinking(article, data.content || "");
+        },
         onToken(data) {
+          if (!sawContent && sawThinking) {
+            finishThinking(article);
+            setStatus("Generando…");
+          }
+          sawContent = true;
           rawAssistant += data.content || "";
           updateAssistantBody(assistantBody, rawAssistant);
         },
-        onDone(data) {
-          if (data.conversation_id) {
-            conversationId = data.conversation_id;
-            sessionStorage.setItem(STORAGE_KEY, conversationId);
-          }
+        onDone() {
+          if (sawThinking) finishThinking(article);
           updateAssistantBody(assistantBody, rawAssistant);
+          upsertConversationMeta({ id: activeId });
+          renderConversationsPanel();
           setStatus("");
         },
         onError(data) {
           const text = data.error || "Error en el stream";
           if (!rawAssistant.trim()) {
-            assistantBody.parentElement.className = "msg error";
-            assistantBody.parentElement.querySelector(".role").textContent = "Error";
+            article.className = "msg error";
+            article.querySelector(".role").textContent = "Error";
             assistantBody.textContent = text;
           } else {
             appendMessage("assistant", text, { error: true });
@@ -180,15 +333,15 @@ formEl.addEventListener("submit", async (event) => {
   } catch (err) {
     const text = err.message || "No se pudo completar el chat";
     if (!rawAssistant.trim()) {
-      assistantBody.parentElement.className = "msg error";
-      assistantBody.parentElement.querySelector(".role").textContent = "Error";
+      article.className = "msg error";
+      article.querySelector(".role").textContent = "Error";
       assistantBody.textContent = text;
     } else {
       appendMessage("assistant", text, { error: true });
     }
     setStatus(text, true);
   } finally {
-    assistantBody.parentElement.classList.remove("typing");
+    article.classList.remove("typing");
     streaming = false;
     sendBtn.disabled = false;
     newBtn.disabled = false;
@@ -204,3 +357,10 @@ inputEl.addEventListener("keydown", (event) => {
 });
 
 renderReferencesPanel();
+renderConversationsPanel();
+
+if (conversationId) {
+  void switchConversation(conversationId);
+} else {
+  startNewConversation();
+}

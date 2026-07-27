@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 
 from chatbot.domain.entities import Message, Role
+from chatbot.domain.llm_stream import LLMDelta
 from chatbot.domain.ports import LLMPort
 
 
@@ -47,10 +48,10 @@ class MockLLMAdapter(LLMPort):
         messages: list[Message],
         *,
         system_prompt: str | None = None,
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[LLMDelta]:
         reply = self._build_reply(messages, system_prompt=system_prompt)
         for word in reply.split(" "):
-            yield f"{word} "
+            yield LLMDelta(text=f"{word} ", kind="content")
 
     async def health_check(self) -> bool:
         return True

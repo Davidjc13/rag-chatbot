@@ -50,6 +50,9 @@ class LLMFactory:
                 model=settings.ollama_model,
                 timeout_seconds=settings.ollama_timeout_seconds,
                 temperature=settings.ollama_temperature,
+                think=settings.ollama_think,
+                num_predict=settings.ollama_num_predict,
+                think_max_chars=settings.ollama_think_max_chars,
             )
 
         if provider == "mock":

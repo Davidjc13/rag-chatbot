@@ -9,6 +9,7 @@ import pytest
 from chatbot.application.services.chat_service import ChatService
 from chatbot.domain.documents import DocumentChunk
 from chatbot.domain.entities import Message, Role
+from chatbot.domain.llm_stream import LLMDelta
 from chatbot.domain.ports import LLMPort
 from chatbot.infrastructure.adapters.llm.embedding_adapter import MockEmbeddingAdapter
 from chatbot.infrastructure.adapters.persistence.memory_repository import (
@@ -42,10 +43,10 @@ class CapturingLLM(LLMPort):
         messages: list[Message],
         *,
         system_prompt: str | None = None,
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[LLMDelta]:
         self.last_system_prompt = system_prompt
         self.last_messages = list(messages)
-        yield "ok"
+        yield LLMDelta(text="ok", kind="content")
 
     async def health_check(self) -> bool:
         return True
@@ -156,3 +157,40 @@ async def test_chat_stream_meta_includes_sources() -> None:
     assert meta.sources[0]["id"] == "doc-1"
     assert meta.sources[0]["index"] == 1
     assert meta.sources[0]["source"] == "rag"
+
+
+@pytest.mark.asyncio
+async def test_sources_dedupe_same_document() -> None:
+    embeddings = MockEmbeddingAdapter()
+    store = InMemoryVectorStore()
+    vectors = await embeddings.embed(["chunk a sobre plazos", "chunk b sobre plazos"])
+    await store.upsert(
+        [
+            DocumentChunk(
+                document_id="doc-1",
+                content="chunk a sobre plazos",
+                metadata={"filename": "policy.docx", "format": "docx"},
+                embedding=vectors[0],
+            ),
+            DocumentChunk(
+                document_id="doc-1",
+                content="chunk b sobre plazos",
+                metadata={"filename": "policy.docx", "format": "docx"},
+                embedding=vectors[1],
+            ),
+        ]
+    )
+    service = ChatService(
+        llm=CapturingLLM(),
+        repository=InMemoryConversationRepository(),
+        prompts=default_prompt_repo(),
+        embeddings=embeddings,
+        vector_store=store,
+        rag_top_k=4,
+    )
+    from chatbot.application.services.chat_service import StreamMeta
+
+    events = [event async for event in service.chat_stream("¿Plazo?")]
+    meta = next(e for e in events if isinstance(e, StreamMeta))
+    assert len(meta.sources) == 1
+    assert meta.sources[0]["id"] == "doc-1"

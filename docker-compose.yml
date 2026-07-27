@@ -1,5 +1,8 @@
 services:
   postgres:
+    # db = solo Postgres (app + Ollama en el host)
+    # docker = stack completo
+    profiles: ["db", "docker"]
     image: pgvector/pgvector:pg16
     container_name: rag-postgres
     environment:
@@ -21,6 +24,7 @@ services:
     restart: unless-stopped
 
   chatbot:
+    profiles: ["docker"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -32,14 +36,19 @@ services:
       APP_ENV: development
       LOG_LEVEL: INFO
       LOG_JSON: "false"
-      LLM_PROVIDER: litellm
+      LLM_PROVIDER: ${LLM_PROVIDER:-litellm}
       LITELLM_MODEL: ${LITELLM_MODEL:-ollama/qwen2.5:3b}
+      # Hostnames de Compose (no usar localhost del .env de desarrollo local)
       LITELLM_API_BASE: http://ollama:11434
       LITELLM_TIMEOUT_SECONDS: "120"
       LITELLM_TEMPERATURE: "0.7"
       LITELLM_EMBEDDING_MODEL: ${LITELLM_EMBEDDING_MODEL:-ollama/nomic-embed-text}
       OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      OLLAMA_THINK: ${OLLAMA_THINK:-true}
+      OLLAMA_NUM_PREDICT: ${OLLAMA_NUM_PREDICT:-4096}
+      OLLAMA_THINK_MAX_CHARS: ${OLLAMA_THINK_MAX_CHARS:-600}
+      OLLAMA_TIMEOUT_SECONDS: ${OLLAMA_TIMEOUT_SECONDS:-300}
       CHUNK_SIZE: "800"
       CHUNK_OVERLAP: "100"
       RAG_TOP_K: "4"
@@ -56,10 +65,11 @@ services:
     restart: unless-stopped
 
   ollama:
+    profiles: ["docker"]
     image: ollama/ollama:latest
     container_name: rag-ollama
-    ports:
-      - "11434:11434"
+    # Sin publicar 11434 en el host: evita choque con Ollama local.
+    # La app Docker habla por la red interna (http://ollama:11434).
     volumes:
       - ollama_data:/root/.ollama
     networks:
@@ -72,9 +82,10 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  # Descarga el modelo al arrancar (one-shot) con reintentos ante fallos DNS
+  # Descarga el modelo al arrancar (one-shot)
   ollama-init:
-    image: ollama/ollama:latest
+    profiles: ["docker"]
+    image: curlimages/curl:8.5.0
     container_name: rag-ollama-init
     depends_on:
       ollama:
@@ -83,18 +94,24 @@ services:
     command:
       - |
         set -e
-        echo "Esperando a Ollama..."
         MODEL="$${OLLAMA_MODEL:-qwen2.5:3b}"
         EMBED="$${OLLAMA_EMBED_MODEL:-nomic-embed-text}"
-        for i in 1 2 3 4 5 6 7 8 9 10; do
-          if ollama list >/dev/null 2>&1; then
+        BASE="$${OLLAMA_HOST:-http://ollama:11434}"
+        echo "Esperando a Ollama en $$BASE ..."
+        for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+          if curl -sf "$$BASE/api/tags" >/dev/null; then
+            echo "Ollama listo."
             break
           fi
-          echo "Reintento $$i/10: Ollama aún no responde (DNS/red)..."
-          sleep 3
+          echo "Reintento $$i/20: Ollama aún no responde..."
+          sleep 2
         done
-        ollama pull "$$MODEL"
-        ollama pull "$$EMBED"
+        curl -sf "$$BASE/api/tags" >/dev/null || { echo "Ollama no disponible"; exit 1; }
+        echo "Descargando $$MODEL ..."
+        curl -sf "$$BASE/api/pull" -d "{\"name\":\"$$MODEL\"}"
+        echo "Descargando $$EMBED ..."
+        curl -sf "$$BASE/api/pull" -d "{\"name\":\"$$EMBED\"}"
+        echo "Modelos listos."
     environment:
       OLLAMA_HOST: http://ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}

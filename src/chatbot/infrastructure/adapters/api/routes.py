@@ -12,6 +12,7 @@ from chatbot.application.services.chat_service import (
     ChatService,
     StreamDone,
     StreamMeta,
+    StreamThinking,
     StreamToken,
 )
 from chatbot.application.services.ingestion_service import IngestionService
@@ -103,6 +104,8 @@ async def chat_stream(payload: ChatRequest, request: Request) -> StreamingRespon
                             "sources": list(event.sources),
                         },
                     )
+                elif isinstance(event, StreamThinking):
+                    yield _sse("thinking", {"content": event.content})
                 elif isinstance(event, StreamToken):
                     yield _sse("token", {"content": event.content})
                 elif isinstance(event, StreamDone):

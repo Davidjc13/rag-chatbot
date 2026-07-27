@@ -34,9 +34,13 @@ export async function uploadDocument(file) {
   return apiJson("/documents", { method: "POST", body });
 }
 
+export async function getConversation(conversationId) {
+  return apiJson(`/conversations/${encodeURIComponent(conversationId)}`);
+}
+
 /**
  * Consume SSE de POST /chat/stream.
- * handlers: { onMeta, onToken, onDone, onError }
+ * handlers: { onMeta, onThinking, onToken, onDone, onError }
  */
 export async function streamChat({ message, conversationId, handlers }) {
   const response = await fetch(`${API_BASE}/chat/stream`, {
@@ -102,6 +106,7 @@ function dispatchSseBlock(raw, handlers) {
   }
 
   if (eventName === "meta" && handlers.onMeta) handlers.onMeta(data);
+  else if (eventName === "thinking" && handlers.onThinking) handlers.onThinking(data);
   else if (eventName === "token" && handlers.onToken) handlers.onToken(data);
   else if (eventName === "done" && handlers.onDone) handlers.onDone(data);
   else if (eventName === "error" && handlers.onError) handlers.onError(data);

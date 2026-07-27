@@ -149,11 +149,24 @@ class Env:
 
     @property
     def ollama_timeout_seconds(self) -> float:
-        return self.get_float("OLLAMA_TIMEOUT_SECONDS", 120.0)
+        return self.get_float("OLLAMA_TIMEOUT_SECONDS", 300.0)
 
     @property
     def ollama_temperature(self) -> float:
         return self.get_float("OLLAMA_TEMPERATURE", 0.7)
+
+    @property
+    def ollama_think(self) -> bool:
+        return self.get_bool("OLLAMA_THINK", True)
+
+    @property
+    def ollama_num_predict(self) -> int:
+        # qwen3 gasta muchos tokens en thinking antes del content.
+        return self.get_int("OLLAMA_NUM_PREDICT", 4096)
+
+    @property
+    def ollama_think_max_chars(self) -> int:
+        return self.get_int("OLLAMA_THINK_MAX_CHARS", 600)
 
     @property
     def chunk_size(self) -> int:

@@ -17,6 +17,7 @@ from litellm.exceptions import (
 
 from chatbot.domain.entities import Message, Role
 from chatbot.domain.exceptions import LLMProviderError, LLMUnavailableError
+from chatbot.domain.llm_stream import LLMDelta
 from chatbot.domain.ports import LLMPort
 
 logger = logging.getLogger(__name__)
@@ -143,7 +144,7 @@ class LiteLLMAdapter(LLMPort):
         messages: list[Message],
         *,
         system_prompt: str | None = None,
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[LLMDelta]:
         kwargs = self._completion_kwargs(messages, system_prompt=system_prompt, stream=True)
 
         logger.debug(
@@ -177,7 +178,7 @@ class LiteLLMAdapter(LLMPort):
                     continue
                 if delta:
                     produced = True
-                    yield str(delta)
+                    yield LLMDelta(text=str(delta), kind="content")
         except stream_errors as exc:
             logger.exception("Error durante stream LiteLLM (%s)", self._model)
             raise self._map_exception(exc) from exc
