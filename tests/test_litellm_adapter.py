@@ -111,19 +111,38 @@ async def test_generate_stream_yields_deltas(adapter: LiteLLMAdapter) -> None:
 
 @pytest.mark.asyncio
 async def test_health_check_ok(adapter: LiteLLMAdapter) -> None:
+    mock_response = SimpleNamespace(status_code=200)
+    mock_http = SimpleNamespace(get=AsyncMock(return_value=mock_response))
     with patch(
-        "chatbot.infrastructure.adapters.llm.litellm_adapter.acompletion",
-        new_callable=AsyncMock,
-        return_value=_completion_response("ok"),
+        "chatbot.infrastructure.adapters.llm.litellm_adapter.AsyncHttpClient.get_instance",
+        return_value=mock_http,
     ):
         assert await adapter.health_check() is True
+    mock_http.get.assert_awaited_once()
+    assert mock_http.get.await_args.args[0] == "http://localhost:11434/api/tags"
 
 
 @pytest.mark.asyncio
 async def test_health_check_failure(adapter: LiteLLMAdapter) -> None:
+    mock_http = SimpleNamespace(get=AsyncMock(side_effect=RuntimeError("boom")))
+    with patch(
+        "chatbot.infrastructure.adapters.llm.litellm_adapter.AsyncHttpClient.get_instance",
+        return_value=mock_http,
+    ):
+        assert await adapter.health_check() is False
+
+
+@pytest.mark.asyncio
+async def test_health_check_uses_acompletion_for_non_ollama() -> None:
+    adapter = LiteLLMAdapter(
+        model="gpt-4o-mini",
+        api_base=None,
+        timeout_seconds=30.0,
+    )
     with patch(
         "chatbot.infrastructure.adapters.llm.litellm_adapter.acompletion",
         new_callable=AsyncMock,
-        side_effect=RuntimeError("boom"),
-    ):
-        assert await adapter.health_check() is False
+        return_value=_completion_response("ok"),
+    ) as mock_completion:
+        assert await adapter.health_check() is True
+    mock_completion.assert_awaited_once()
