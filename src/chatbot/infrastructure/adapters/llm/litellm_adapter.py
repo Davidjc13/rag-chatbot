@@ -192,6 +192,23 @@ class LiteLLMAdapter(LLMPort):
             )
 
     async def health_check(self) -> bool:
+        # Con Ollama detrás de LiteLLM, un ping a /api/tags es más fiable
+        # que un acompletion mínimo (evita falsos degraded).
+        if self._api_base and (
+            self._model.startswith("ollama/") or "ollama" in self._api_base
+        ):
+            try:
+                from chatbot.core.http import AsyncHttpClient
+
+                response = await AsyncHttpClient.get_instance().get(
+                    f"{self._api_base.rstrip('/')}/api/tags",
+                    timeout=5.0,
+                )
+                return response.status_code == 200
+            except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+                logger.warning("Health check de LiteLLM/Ollama falló", exc_info=True)
+                return False
+
         kwargs: dict[str, object] = {
             "model": self._model,
             "messages": [{"role": "user", "content": "ping"}],

@@ -1,0 +1,1 @@
+"""Persistencia PostgreSQL + pgvector."""

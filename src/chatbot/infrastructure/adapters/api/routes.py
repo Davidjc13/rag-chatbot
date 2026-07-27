@@ -15,6 +15,7 @@ from chatbot.application.services.chat_service import (
     StreamToken,
 )
 from chatbot.application.services.ingestion_service import IngestionService
+from chatbot.core.env import Env
 from chatbot.domain.exceptions import ChatbotError
 from chatbot.domain.ports import LLMPort
 from chatbot.infrastructure.adapters.api.mime_validation import validate_upload
@@ -28,7 +29,6 @@ from chatbot.infrastructure.adapters.api.schemas import (
     IngestionResponse,
     MessageResponse,
 )
-from chatbot.infrastructure.config.settings import Settings
 
 router = APIRouter()
 
@@ -45,7 +45,7 @@ def _llm(request: Request) -> LLMPort:
     return request.app.state.llm
 
 
-def _settings(request: Request) -> Settings:
+def _env(request: Request) -> Env:
     return request.app.state.settings
 
 
@@ -55,12 +55,12 @@ def _sse(event: str, payload: dict[str, object]) -> str:
 
 @router.get("/health", response_model=HealthResponse, tags=["health"])
 async def health(request: Request) -> HealthResponse:
-    settings = _settings(request)
+    env = _env(request)
     llm = _llm(request)
     healthy = await llm.health_check()
     return HealthResponse(
         status="ok" if healthy else "degraded",
-        llm_provider=settings.llm_provider,
+        llm_provider=env.llm_provider,
         llm_model=llm.model_name,
         llm_healthy=healthy,
     )

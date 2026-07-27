@@ -11,31 +11,35 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from chatbot.core.env import Env
 from chatbot.infrastructure.adapters.api.exception_handlers import register_exception_handlers
 from chatbot.infrastructure.adapters.api.routes import router
 from chatbot.infrastructure.config.logging_config import setup_logging
-from chatbot.infrastructure.config.settings import get_settings
 from chatbot.infrastructure.container import AppContainer
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 def create_app(container: AppContainer | None = None) -> FastAPI:
-    settings = get_settings()
-    setup_logging(level=settings.log_level, json_logs=settings.log_json)
+    env = Env.get_instance()
+    setup_logging(level=env.log_level, json_logs=env.log_json)
     app_container = container or AppContainer.get_instance()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        await app_container.startup()
         app.state.container = app_container
-        app.state.settings = app_container.settings
+        app.state.settings = app_container.env
         app.state.llm = app_container.llm
         app.state.chat_service = app_container.chat_service
         app.state.ingestion_service = app_container.ingestion_service
-        yield
+        try:
+            yield
+        finally:
+            await app_container.shutdown()
 
     app = FastAPI(
-        title=settings.app_name,
+        title=env.app_name,
         version="0.1.0",
         description="Chatbot RAG hexagonal con LiteLLM e ingestión de documentos",
         lifespan=lifespan,

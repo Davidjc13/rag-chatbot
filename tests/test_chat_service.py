@@ -13,6 +13,7 @@ from chatbot.infrastructure.adapters.persistence.memory_repository import (
     InMemoryConversationRepository,
 )
 from chatbot.infrastructure.adapters.persistence.memory_vector_store import InMemoryVectorStore
+from tests.prompt_fixtures import default_prompt_repo
 
 
 @pytest.fixture
@@ -33,7 +34,7 @@ async def chat_service() -> ChatService:
     return ChatService(
         llm=MockLLMAdapter(model="test-model"),
         repository=InMemoryConversationRepository(),
-        system_prompt="Eres un bot de prueba.",
+        prompts=default_prompt_repo(system="Eres un bot de prueba.\n\n{context}"),
         embeddings=embeddings,
         vector_store=store,
         rag_top_k=2,
@@ -68,3 +69,10 @@ async def test_empty_message_raises(chat_service: ChatService) -> None:
 async def test_missing_conversation_raises(chat_service: ChatService) -> None:
     with pytest.raises(ConversationNotFoundError):
         await chat_service.chat("Hola", conversation_id="no-existe")
+
+
+@pytest.mark.asyncio
+async def test_persisted_history_keeps_raw_question(chat_service: ChatService) -> None:
+    reply = await chat_service.chat("pregunta cruda")
+    conversation = await chat_service.get_conversation(reply.conversation_id)
+    assert conversation.messages[0].content == "pregunta cruda"

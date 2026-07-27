@@ -15,11 +15,13 @@ from chatbot.infrastructure.adapters.persistence.memory_repository import (
     InMemoryConversationRepository,
 )
 from chatbot.infrastructure.adapters.persistence.memory_vector_store import InMemoryVectorStore
+from tests.prompt_fixtures import default_prompt_repo
 
 
 class CapturingLLM(LLMPort):
     def __init__(self) -> None:
         self.last_system_prompt: str | None = None
+        self.last_messages: list[Message] = []
 
     @property
     def model_name(self) -> str:
@@ -32,6 +34,7 @@ class CapturingLLM(LLMPort):
         system_prompt: str | None = None,
     ) -> Message:
         self.last_system_prompt = system_prompt
+        self.last_messages = list(messages)
         return Message(role=Role.ASSISTANT, content="ok")
 
     async def generate_stream(
@@ -41,6 +44,7 @@ class CapturingLLM(LLMPort):
         system_prompt: str | None = None,
     ) -> AsyncIterator[str]:
         self.last_system_prompt = system_prompt
+        self.last_messages = list(messages)
         yield "ok"
 
     async def health_check(self) -> bool:
@@ -67,7 +71,10 @@ async def test_chat_adds_retrieved_chunks_to_system_prompt() -> None:
     service = ChatService(
         llm=llm,
         repository=InMemoryConversationRepository(),
-        system_prompt="Eres un bot.",
+        prompts=default_prompt_repo(
+            system="Eres un bot.\n\n{context}",
+            user_message="Pregunta:\n{question}",
+        ),
         embeddings=embeddings,
         vector_store=store,
         rag_top_k=2,
@@ -80,6 +87,39 @@ async def test_chat_adds_retrieved_chunks_to_system_prompt() -> None:
     assert "Fragmento" in llm.last_system_prompt
     assert "<index = 1, source=rag, title=policy.docx, id=doc-1>" in llm.last_system_prompt
     assert "cita=" in llm.last_system_prompt
+    assert llm.last_messages[-1].content == "Pregunta:\n¿Cuál es el plazo de devolución?"
+
+
+@pytest.mark.asyncio
+async def test_chat_renders_question_template_but_stores_raw() -> None:
+    embeddings = MockEmbeddingAdapter()
+    store = InMemoryVectorStore()
+    content = "Las devoluciones se aceptan en 30 días."
+    vectors = await embeddings.embed([content])
+    await store.upsert(
+        [
+            DocumentChunk(
+                document_id="doc-1",
+                content=content,
+                metadata={"filename": "policy.docx", "format": "docx"},
+                embedding=vectors[0],
+            )
+        ]
+    )
+    llm = CapturingLLM()
+    repo = InMemoryConversationRepository()
+    service = ChatService(
+        llm=llm,
+        repository=repo,
+        prompts=default_prompt_repo(user_message="Q: {question}"),
+        embeddings=embeddings,
+        vector_store=store,
+        rag_top_k=2,
+    )
+    reply = await service.chat("¿Plazo?")
+    assert llm.last_messages[-1].content == "Q: ¿Plazo?"
+    conversation = await service.get_conversation(reply.conversation_id)
+    assert conversation.messages[0].content == "¿Plazo?"
 
 
 @pytest.mark.asyncio
@@ -101,7 +141,7 @@ async def test_chat_stream_meta_includes_sources() -> None:
     service = ChatService(
         llm=CapturingLLM(),
         repository=InMemoryConversationRepository(),
-        system_prompt="Eres un bot.",
+        prompts=default_prompt_repo(),
         embeddings=embeddings,
         vector_store=store,
         rag_top_k=2,

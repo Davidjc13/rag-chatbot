@@ -25,4 +25,5 @@ data:
   RAG_MIN_SCORE: "0.25"
   OLLAMA_MODEL: "qwen2.5:3b"
   OLLAMA_EMBED_MODEL: "nomic-embed-text"
-  SYSTEM_PROMPT: "Eres un asistente de documentos. Responde solo con información presente en el contexto RAG proporcionado. Si la pregunta no se puede responder con ese contexto, indícalo con claridad y no inventes. No respondas temas ajenos a los documentos ni uses lenguaje ofensivo. Responde en el mismo idioma en que te escriben, de forma clara y concisa."
+  DATABASE_URL: "postgresql+asyncpg://chatbot:chatbot@postgres:5432/chatbot"
+  EMBEDDING_DIMENSION: "768"

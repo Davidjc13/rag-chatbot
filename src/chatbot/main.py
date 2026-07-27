@@ -4,19 +4,19 @@ from __future__ import annotations
 
 import uvicorn
 
+from chatbot.core.env import Env
 from chatbot.infrastructure.adapters.api.app import create_app
-from chatbot.infrastructure.config.settings import get_settings
 
 app = create_app()
 
 
 def run() -> None:
-    settings = get_settings()
+    env = Env.get_instance()
     uvicorn.run(
         "chatbot.main:app",
-        host=settings.host,
-        port=settings.port,
-        reload=settings.app_env == "development",
+        host=env.host,
+        port=env.port,
+        reload=env.app_env == "development",
     )
 
 

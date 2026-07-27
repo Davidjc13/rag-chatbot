@@ -17,7 +17,7 @@ Chatbot con **arquitectura hexagonal**, **LiteLLM**, ingestión RAG de **PDF / D
           │                                           │
           │                              parse → chunk(ti) → embed
           │                                           │
-   retrieve top-k  ◄────────────────────── InMemoryVectorStore
+   retrieve top-k  ◄────────────────────── PostgresVectorStore (pgvector)
           │
           ▼
        LLMPort.generate / generate_stream
@@ -27,14 +27,16 @@ Chatbot con **arquitectura hexagonal**, **LiteLLM**, ingestión RAG de **PDF / D
 |------|-----------------|
 | `domain/` | Entidades, excepciones y puertos |
 | `application/` | `ChatService`, `IngestionService`, guardarraíles, chunker |
-| `infrastructure/` | Parsers, embeddings, vector store, FastAPI, UI estática |
+| `infrastructure/` | Parsers, embeddings, Postgres/pgvector, FastAPI, UI estática |
+| `core/` | Singletons `Env` (lazy) y `AsyncHttpClient` |
 
 ### Presentación
 
 - UI en `/` (chat) y `/documents` (subir / listar / borrar).
 - Chat por **SSE** (`POST /api/v1/chat/stream`): solo la conversación actual en `sessionStorage`.
-- Guardarraíles: toxicidad (patrones) + umbral `RAG_MIN_SCORE` + system prompt de alcance.
+- Guardarraíles: toxicidad (patrones) + umbral `RAG_MIN_SCORE` + prompts de alcance en BD.
 - Ingestión: validación de **MIME**, extensión y magic bytes.
+- Prompts markdown en tabla `prompts`: `system` (`{context}`) y `user_message` (`{question}`).
 
 ### Tablas protegidas en el chunking
 
@@ -45,7 +47,7 @@ Chatbot con **arquitectura hexagonal**, **LiteLLM**, ingestión RAG de **PDF / D
 
 ### Patrones
 
-- **Singleton**: `Settings`, `AppContainer`
+- **Singleton**: `Env` (lazy), `AsyncHttpClient`, `AppContainer`
 - **Factory**: `LLMFactory`, `DocumentParserFactory`
 - **Ports & Adapters**: hexagonal
 
@@ -53,6 +55,7 @@ Chatbot con **arquitectura hexagonal**, **LiteLLM**, ingestión RAG de **PDF / D
 
 - Python ≥ 3.11
 - [UV](https://docs.astral.sh/uv/)
+- PostgreSQL con extensión **pgvector**
 - Ollama (si usas modelos `ollama/...`), p.ej. chat + `nomic-embed-text`
 - Docker / kubectl (opcional)
 
@@ -62,6 +65,8 @@ Copia `.env.example` a `.env` y ajusta:
 
 | Variable | Descripción | Ejemplo |
 |----------|-------------|---------|
+| `DATABASE_URL` | PostgreSQL async | `postgresql+asyncpg://chatbot:chatbot@localhost:5432/chatbot` |
+| `EMBEDDING_DIMENSION` | Dimensión de vectores | `768` |
 | `LLM_PROVIDER` | Proveedor LLM | `litellm`, `ollama` o `mock` |
 | `LITELLM_MODEL` | Modelo de chat | `ollama/qwen2.5:3b` |
 | `LITELLM_EMBEDDING_MODEL` | Modelo de embeddings | `ollama/nomic-embed-text` |

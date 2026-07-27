@@ -19,6 +19,7 @@ from chatbot.infrastructure.adapters.persistence.memory_repository import (
     InMemoryConversationRepository,
 )
 from chatbot.infrastructure.adapters.persistence.memory_vector_store import InMemoryVectorStore
+from tests.prompt_fixtures import default_prompt_repo
 
 
 def test_guardrail_blocks_toxic_input() -> None:
@@ -54,7 +55,7 @@ async def rag_chat_service() -> ChatService:
     return ChatService(
         llm=MockLLMAdapter(model="stream-mock"),
         repository=InMemoryConversationRepository(),
-        system_prompt="Eres un bot de prueba.",
+        prompts=default_prompt_repo(system="Eres un bot de prueba.\n\n{context}"),
         embeddings=embeddings,
         vector_store=store,
         guardrails=RuleBasedGuardrail(min_score=0.01),
@@ -73,7 +74,7 @@ async def test_chat_out_of_scope_when_no_documents() -> None:
     service = ChatService(
         llm=MockLLMAdapter(),
         repository=InMemoryConversationRepository(),
-        system_prompt="Bot",
+        prompts=default_prompt_repo(system="Bot\n\n{context}"),
         embeddings=MockEmbeddingAdapter(),
         vector_store=InMemoryVectorStore(),
         guardrails=RuleBasedGuardrail(min_score=0.25),

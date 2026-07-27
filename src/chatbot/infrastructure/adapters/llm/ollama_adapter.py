@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator
 
 import httpx
 
+from chatbot.core.http import AsyncHttpClient
 from chatbot.domain.entities import Message, Role
 from chatbot.domain.exceptions import LLMProviderError, LLMUnavailableError
 from chatbot.domain.ports import LLMPort
@@ -25,11 +26,13 @@ class OllamaAdapter(LLMPort):
         model: str,
         timeout_seconds: float = 120.0,
         temperature: float = 0.7,
+        http: AsyncHttpClient | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._timeout = timeout_seconds
         self._temperature = temperature
+        self._http = http or AsyncHttpClient.get_instance()
 
     @property
     def model_name(self) -> str:
@@ -65,10 +68,9 @@ class OllamaAdapter(LLMPort):
         logger.debug("Llamando a Ollama", extra={"url": url, "model": self._model})
 
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                response = await client.post(url, json=body)
-                response.raise_for_status()
-                data = response.json()
+            response = await self._http.post(url, json=body, timeout=self._timeout)
+            response.raise_for_status()
+            data = response.json()
         except httpx.ConnectError as exc:
             logger.exception("Ollama no disponible en %s", self._base_url)
             raise LLMUnavailableError(
@@ -114,23 +116,27 @@ class OllamaAdapter(LLMPort):
 
         produced = False
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                async with client.stream("POST", url, json=body) as response:
-                    response.raise_for_status()
-                    async for line in response.aiter_lines():
-                        if not line.strip():
-                            continue
-                        try:
-                            data = json.loads(line)
-                        except json.JSONDecodeError as exc:
-                            raise LLMProviderError(
-                                f"Chunk NDJSON inválido de Ollama: {line!r}",
-                                provider="ollama",
-                            ) from exc
-                        content = (data.get("message") or {}).get("content")
-                        if content:
-                            produced = True
-                            yield str(content)
+            async with self._http.stream(
+                "POST",
+                url,
+                json=body,
+                timeout=self._timeout,
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        data = json.loads(line)
+                    except json.JSONDecodeError as exc:
+                        raise LLMProviderError(
+                            f"Chunk NDJSON inválido de Ollama: {line!r}",
+                            provider="ollama",
+                        ) from exc
+                    content = (data.get("message") or {}).get("content")
+                    if content:
+                        produced = True
+                        yield str(content)
         except httpx.ConnectError as exc:
             logger.exception("Ollama no disponible en %s", self._base_url)
             raise LLMUnavailableError(
@@ -164,9 +170,11 @@ class OllamaAdapter(LLMPort):
 
     async def health_check(self) -> bool:
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(f"{self._base_url}/api/tags")
-                return response.status_code == 200
+            response = await self._http.get(
+                f"{self._base_url}/api/tags",
+                timeout=5.0,
+            )
+            return response.status_code == 200
         except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             logger.warning("Health check de Ollama falló", exc_info=True)
             return False

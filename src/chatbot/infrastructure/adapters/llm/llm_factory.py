@@ -5,12 +5,12 @@ from __future__ import annotations
 import logging
 from typing import Literal
 
+from chatbot.core.env import Env
 from chatbot.domain.exceptions import ConfigurationError
 from chatbot.domain.ports import LLMPort
 from chatbot.infrastructure.adapters.llm.litellm_adapter import LiteLLMAdapter
 from chatbot.infrastructure.adapters.llm.mock_adapter import MockLLMAdapter
 from chatbot.infrastructure.adapters.llm.ollama_adapter import OllamaAdapter
-from chatbot.infrastructure.config.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,8 @@ class LLMFactory:
     """
 
     @staticmethod
-    def create(settings: Settings) -> LLMPort:
+    def create(env: Env | None = None) -> LLMPort:
+        settings = env or Env.get_instance()
         provider = settings.llm_provider
         model = settings.active_model
         logger.info(

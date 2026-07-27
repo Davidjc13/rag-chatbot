@@ -78,6 +78,14 @@ class ConversationRepositoryPort(Protocol):
     async def delete(self, conversation_id: str) -> None: ...
 
 
+class PromptRepositoryPort(Protocol):
+    """Puerto de persistencia de prompts markdown (system / user_message)."""
+
+    async def get(self, key: str) -> str | None: ...
+
+    async def upsert(self, key: str, content: str) -> None: ...
+
+
 class DocumentParserPort(ABC):
     """Puerto de salida para parsear documentos binarios."""
 

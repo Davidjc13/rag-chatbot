@@ -14,8 +14,10 @@ from chatbot.domain.ports import (
     EmbeddingPort,
     GuardrailPort,
     LLMPort,
+    PromptRepositoryPort,
     VectorStorePort,
 )
+from chatbot.domain.prompts import PROMPT_SYSTEM, PROMPT_USER_MESSAGE
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +50,11 @@ _CITATION_INSTRUCTIONS = (
     "No inventes índices, títulos ni ids."
 )
 
+_FALLBACK_SYSTEM = (
+    "Eres un asistente de documentos. Responde solo con el contexto RAG.\n\n{context}"
+)
+_FALLBACK_USER = "{question}"
+
 
 class ChatService:
     """Servicio de aplicación: orquesta conversación + contexto RAG."""
@@ -56,8 +63,8 @@ class ChatService:
         self,
         llm: LLMPort,
         repository: ConversationRepositoryPort,
+        prompts: PromptRepositoryPort,
         *,
-        system_prompt: str,
         embeddings: EmbeddingPort | None = None,
         vector_store: VectorStorePort | None = None,
         guardrails: GuardrailPort | None = None,
@@ -65,7 +72,7 @@ class ChatService:
     ) -> None:
         self._llm = llm
         self._repository = repository
-        self._system_prompt = system_prompt
+        self._prompts = prompts
         self._embeddings = embeddings
         self._vector_store = vector_store
         self._guardrails = guardrails
@@ -103,7 +110,7 @@ class ChatService:
                 model=self._llm.model_name,
             )
 
-        system_prompt = self._build_system_prompt(retrieved)
+        system_prompt, llm_messages = await self._build_llm_payload(conversation, retrieved)
 
         logger.info(
             "Generando respuesta",
@@ -116,7 +123,7 @@ class ChatService:
         )
 
         assistant_message = await self._llm.generate(
-            conversation.history(),
+            llm_messages,
             system_prompt=system_prompt,
         )
         if self._guardrails is not None:
@@ -170,7 +177,7 @@ class ChatService:
             yield StreamDone(conversation_id=conversation.id)
             return
 
-        system_prompt = self._build_system_prompt(retrieved)
+        system_prompt, llm_messages = await self._build_llm_payload(conversation, retrieved)
         logger.info(
             "Generando respuesta (stream)",
             extra={
@@ -183,7 +190,7 @@ class ChatService:
 
         parts: list[str] = []
         async for delta in self._llm.generate_stream(
-            conversation.history(),
+            llm_messages,
             system_prompt=system_prompt,
         ):
             if not delta:
@@ -225,15 +232,36 @@ class ChatService:
             return []
         return await self._vector_store.search(vectors[0], top_k=self._rag_top_k)
 
-    def _build_system_prompt(self, retrieved: list[RetrievedChunk]) -> str:
+    async def _build_llm_payload(
+        self,
+        conversation: Conversation,
+        retrieved: list[RetrievedChunk],
+    ) -> tuple[str, list[Message]]:
+        context = self._build_context(retrieved)
+        system_template = await self._prompts.get(PROMPT_SYSTEM) or _FALLBACK_SYSTEM
+        user_template = await self._prompts.get(PROMPT_USER_MESSAGE) or _FALLBACK_USER
+
+        system_prompt = system_template.replace("{context}", context)
+        question = ""
+        if conversation.messages and conversation.messages[-1].role == Role.USER:
+            question = conversation.messages[-1].content
+        user_rendered = user_template.replace("{question}", question)
+
+        history = conversation.history()
+        if history and history[-1].role == Role.USER:
+            history[-1] = Message(
+                role=Role.USER,
+                content=user_rendered,
+                created_at=history[-1].created_at,
+            )
+        return system_prompt, history
+
+    @staticmethod
+    def _build_context(retrieved: list[RetrievedChunk]) -> str:
         if not retrieved:
-            return self._system_prompt
+            return "(Sin fragmentos relevantes recuperados.)"
 
         parts = [
-            self._system_prompt,
-            "",
-            "Usa el siguiente contexto de documentos para responder. "
-            "Si el contexto no es suficiente, dilo con claridad.",
             _CITATION_INSTRUCTIONS,
             "",
         ]
