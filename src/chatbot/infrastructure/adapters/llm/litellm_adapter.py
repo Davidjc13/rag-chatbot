@@ -15,6 +15,7 @@ from litellm.exceptions import (
     Timeout,
 )
 
+from chatbot.core.http import AsyncHttpClient
 from chatbot.domain.entities import Message, Role
 from chatbot.domain.exceptions import LLMProviderError, LLMUnavailableError
 from chatbot.domain.llm_stream import LLMDelta
@@ -199,8 +200,6 @@ class LiteLLMAdapter(LLMPort):
             self._model.startswith("ollama/") or "ollama" in self._api_base
         ):
             try:
-                from chatbot.core.http import AsyncHttpClient
-
                 response = await AsyncHttpClient.get_instance().get(
                     f"{self._api_base.rstrip('/')}/api/tags",
                     timeout=5.0,

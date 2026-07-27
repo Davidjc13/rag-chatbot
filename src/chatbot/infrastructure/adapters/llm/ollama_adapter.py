@@ -17,10 +17,10 @@ from chatbot.domain.ports import LLMPort
 logger = logging.getLogger(__name__)
 
 
-class OllamaAdapter(LLMPort):
+class OllamaAdapter(LLMPort):  # pylint: disable=too-many-instance-attributes
     """Cliente HTTP hacia la API de chat de Ollama."""
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments
         self,
         *,
         base_url: str,
@@ -117,7 +117,7 @@ class OllamaAdapter(LLMPort):
 
         return Message(role=Role.ASSISTANT, content=str(content).strip())
 
-    async def generate_stream(
+    async def generate_stream(  # pylint: disable=too-many-locals
         self,
         messages: list[Message],
         *,

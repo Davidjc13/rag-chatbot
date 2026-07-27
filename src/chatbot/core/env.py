@@ -9,7 +9,7 @@ from typing import Literal
 from dotenv import load_dotenv
 
 
-class Env:
+class Env:  # pylint: disable=too-many-public-methods
     """
     Lee variables de entorno bajo demanda y las cachea tras el primer acceso.
 

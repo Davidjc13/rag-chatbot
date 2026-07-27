@@ -75,9 +75,9 @@ class PostgresVectorStore:
             doc_ids = {c.document_id for c in chunks}
             for doc_id in doc_ids:
                 count = await session.scalar(
-                    select(func.count())
-                    .select_from(ChunkModel)
-                    .where(ChunkModel.document_id == doc_id)
+                    select(func.count(ChunkModel.id)).where(  # pylint: disable=not-callable
+                        ChunkModel.document_id == doc_id
+                    )
                 )
                 doc = await session.get(DocumentModel, doc_id)
                 if doc is not None:
