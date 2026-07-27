@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RAG Chatbot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,650&family=Source+Sans+3:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/css/app.css" />
+  </head>
+  <body>
+    <div class="app-shell app-shell--chat">
+      <header class="topbar">
+        <h1 class="brand">RAG Chatbot</h1>
+        <nav class="nav" aria-label="Principal">
+          <a href="/" aria-current="page">Chat</a>
+          <a href="/documents">Documentos</a>
+        </nav>
+      </header>
+
+      <div class="chat-layout">
+        <main class="panel">
+          <div id="chat-log" class="chat-log" aria-live="polite">
+            <div id="empty-hint" class="empty-hint">
+              <strong>Conversación actual</strong>
+              Pregunta sobre los documentos indexados. El historial solo vive en esta sesión;
+              no se guarda de forma permanente.
+            </div>
+          </div>
+
+          <p id="status" class="status-line" role="status"></p>
+
+          <form id="chat-form" class="composer">
+            <label class="visually-hidden" for="message-input">Mensaje</label>
+            <textarea
+              id="message-input"
+              name="message"
+              rows="2"
+              maxlength="16000"
+              placeholder="Escribe tu pregunta…"
+              required
+            ></textarea>
+            <button type="button" id="new-chat-btn" class="secondary">Nueva</button>
+            <button type="submit" id="send-btn">Enviar</button>
+          </form>
+        </main>
+
+        <aside class="refs-panel" aria-label="Referencias">
+          <h2>Referencias</h2>
+          <p id="refs-empty" class="refs-empty">
+            Las citas del asistente aparecerán aquí (índice, título e id del documento).
+          </p>
+          <ol id="refs-list" class="refs-list"></ol>
+        </aside>
+      </div>
+    </div>
+    <style>
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        border: 0;
+      }
+    </style>
+    <script type="module" src="/static/js/chat.js"></script>
+  </body>
+</html>

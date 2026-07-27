@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Documentos — RAG Chatbot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,650&family=Source+Sans+3:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/css/app.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <h1 class="brand">RAG Chatbot</h1>
+        <nav class="nav" aria-label="Principal">
+          <a href="/">Chat</a>
+          <a href="/documents" aria-current="page">Documentos</a>
+        </nav>
+      </header>
+
+      <main class="panel">
+        <div class="docs-toolbar">
+          <h2>Documentos indexados</h2>
+          <form id="upload-form" class="upload-row">
+            <input
+              id="file-input"
+              type="file"
+              accept=".pdf,.docx,.xlsx,.xlsm,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroEnabled.12"
+              required
+            />
+            <button type="submit" id="upload-btn">Subir</button>
+          </form>
+        </div>
+
+        <p id="status" class="status-line" role="status"></p>
+
+        <table class="doc-table" aria-label="Lista de documentos">
+          <thead>
+            <tr>
+              <th>Nombre</th>
+              <th>Formato</th>
+              <th>Chunks</th>
+              <th>Fecha</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="docs-body"></tbody>
+        </table>
+      </main>
+    </div>
+    <script type="module" src="/static/js/documents.js"></script>
+  </body>
+</html>

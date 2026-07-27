@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chatbot-config
+  namespace: rag-chatbot
+  labels:
+    app.kubernetes.io/name: rag-chatbot
+    app.kubernetes.io/component: api
+data:
+  APP_NAME: "RAG Chatbot"
+  APP_ENV: "production"
+  LOG_LEVEL: "INFO"
+  LOG_JSON: "true"
+  HOST: "0.0.0.0"
+  PORT: "8000"
+  LLM_PROVIDER: "litellm"
+  LITELLM_MODEL: "ollama/qwen2.5:3b"
+  LITELLM_API_BASE: "http://ollama:11434"
+  LITELLM_TIMEOUT_SECONDS: "120"
+  LITELLM_TEMPERATURE: "0.7"
+  LITELLM_EMBEDDING_MODEL: "ollama/nomic-embed-text"
+  CHUNK_SIZE: "800"
+  CHUNK_OVERLAP: "100"
+  RAG_TOP_K: "4"
+  RAG_MIN_SCORE: "0.25"
+  OLLAMA_MODEL: "qwen2.5:3b"
+  OLLAMA_EMBED_MODEL: "nomic-embed-text"
+  SYSTEM_PROMPT: "Eres un asistente de documentos. Responde solo con información presente en el contexto RAG proporcionado. Si la pregunta no se puede responder con ese contexto, indícalo con claridad y no inventes. No respondas temas ajenos a los documentos ni uses lenguaje ofensivo. Responde en el mismo idioma en que te escriben, de forma clara y concisa."
