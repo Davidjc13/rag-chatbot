@@ -28,13 +28,14 @@ class LLMPort(ABC):
         """Genera una respuesta del asistente a partir del historial."""
 
     @abstractmethod
-    def generate_stream(
+    async def generate_stream(
         self,
         messages: list[Message],
         *,
         system_prompt: str | None = None,
     ) -> AsyncIterator[str]:
         """Genera la respuesta del asistente en streaming (deltas de texto)."""
+        yield ""
 
     @abstractmethod
     async def health_check(self) -> bool:

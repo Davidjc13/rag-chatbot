@@ -42,9 +42,10 @@ class AppContainer:  # pylint: disable=too-many-instance-attributes
         self.settings = settings or get_settings()
         self.llm: LLMPort = LLMFactory.create(self.settings)
         self.repository: ConversationRepositoryPort = InMemoryConversationRepository()
+        embedding_api_base = self._resolve_embedding_api_base(self.settings)
         self.embeddings: EmbeddingPort = LiteLLMEmbeddingAdapter(
             model=self.settings.litellm_embedding_model,
-            api_base=self.settings.litellm_api_base,
+            api_base=embedding_api_base,
             api_key=self.settings.litellm_api_key,
             timeout_seconds=self.settings.litellm_embedding_timeout_seconds,
         )
@@ -78,8 +79,22 @@ class AppContainer:  # pylint: disable=too-many-instance-attributes
                 "provider": self.settings.llm_provider,
                 "model": self.settings.active_model,
                 "embedding_model": self.settings.litellm_embedding_model,
+                "embedding_api_base": embedding_api_base,
             },
         )
+
+    @staticmethod
+    def _resolve_embedding_api_base(settings: Settings) -> str | None:
+        """
+        Alinea el endpoint de embeddings con el de chat.
+
+        Con LLM_PROVIDER=ollama usamos OLLAMA_BASE_URL (p.ej. localhost en host,
+        http://ollama:11434 en Compose). Evita que un LITELLM_API_BASE de Docker
+        apunte a un hostname irresoluble fuera de la red de Compose.
+        """
+        if settings.llm_provider == "ollama":
+            return settings.ollama_base_url
+        return settings.litellm_api_base
 
     @classmethod
     def get_instance(cls, settings: Settings | None = None) -> AppContainer:

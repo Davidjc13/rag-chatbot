@@ -17,13 +17,16 @@ services:
       LITELLM_TIMEOUT_SECONDS: "120"
       LITELLM_TEMPERATURE: "0.7"
       LITELLM_EMBEDDING_MODEL: ${LITELLM_EMBEDDING_MODEL:-ollama/nomic-embed-text}
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
       CHUNK_SIZE: "800"
       CHUNK_OVERLAP: "100"
       RAG_TOP_K: "4"
-      SYSTEM_PROMPT: "Eres un asistente útil, claro y conciso."
+      RAG_MIN_SCORE: "0.25"
+      SYSTEM_PROMPT: "Eres un asistente de documentos. Responde solo con información del contexto RAG."
     depends_on:
       ollama:
-        condition: service_started
+        condition: service_healthy
     networks:
       - chatbot-net
     restart: unless-stopped
@@ -37,6 +40,12 @@ services:
       - ollama_data:/root/.ollama
     networks:
       - chatbot-net
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 10s
+      retries: 12
+      start_period: 10s
     restart: unless-stopped
 
   # Descarga el modelo al arrancar (one-shot)
