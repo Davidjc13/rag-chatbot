@@ -433,6 +433,30 @@ button.compact {
   border-top: 1px solid var(--line);
 }
 
+.flow-picker {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.flow-picker legend {
+  margin-bottom: 0.25rem;
+  color: var(--ink-muted);
+  font-size: 0.82rem;
+}
+
+.flow-picker label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--ink-muted);
+  font-size: 0.95rem;
+}
+
 .composer textarea {
   width: 100%;
   min-height: 3.2rem;

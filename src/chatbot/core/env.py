@@ -157,7 +157,8 @@ class Env:  # pylint: disable=too-many-public-methods
 
     @property
     def ollama_think(self) -> bool:
-        return self.get_bool("OLLAMA_THINK", True)
+        # false por defecto: qwen2.5 no soporta thinking (HTTP 400).
+        return self.get_bool("OLLAMA_THINK", False)
 
     @property
     def ollama_num_predict(self) -> int:
@@ -208,6 +209,41 @@ class Env:  # pylint: disable=too-many-public-methods
     @property
     def embedding_dimension(self) -> int:
         return self.get_int("EMBEDDING_DIMENSION", 768)
+
+    @property
+    def vector_backend(self) -> Literal["postgres", "neo4j"]:
+        value = (self.get("VECTOR_BACKEND", "postgres") or "postgres").lower()
+        if value not in {"postgres", "neo4j"}:
+            return "postgres"
+        return value  # type: ignore[return-value]
+
+    @property
+    def neo4j_uri(self) -> str:
+        return self.get("NEO4J_URI", "bolt://localhost:7687") or "bolt://localhost:7687"
+
+    @property
+    def neo4j_username(self) -> str:
+        return self.get("NEO4J_USERNAME", "neo4j") or "neo4j"
+
+    @property
+    def neo4j_password(self) -> str:
+        return self.get("NEO4J_PASSWORD", "password") or "password"
+
+    @property
+    def neo4j_database(self) -> str:
+        return self.get("NEO4J_DATABASE", "neo4j") or "neo4j"
+
+    @property
+    def neo4j_vector_index(self) -> str:
+        return self.get("NEO4J_VECTOR_INDEX", "chunk_embeddings") or "chunk_embeddings"
+
+    @property
+    def neo4j_embedding_dimension(self) -> int:
+        return self.get_int("NEO4J_EMBEDDING_DIMENSION", self.embedding_dimension)
+
+    @property
+    def neo4j_enabled(self) -> bool:
+        return self.get_bool("NEO4J_ENABLED", True)
 
     @property
     def http_timeout_seconds(self) -> float:

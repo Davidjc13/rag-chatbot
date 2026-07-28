@@ -1,6 +1,6 @@
 # RAG Chatbot
 
-Chatbot con **arquitectura hexagonal**, **LiteLLM**, ingestión RAG de **PDF / DOCX / XLSX**, UI estática, **SSE**, gestión con **UV**, **Docker** y **Kubernetes**.
+Chatbot con **arquitectura hexagonal**, **LiteLLM**, ingestión RAG de **PDF / DOCX / XLSX**, UI estática, **SSE**, gestión con **UV**, **Docker** y **Kubernetes**. Mantiene **PostgreSQL + pgvector** como backend vectorial principal y añade **Neo4j** como flujo alternativo seleccionable desde la UI.
 
 ## Arquitectura
 
@@ -17,7 +17,7 @@ Chatbot con **arquitectura hexagonal**, **LiteLLM**, ingestión RAG de **PDF / D
           │                                           │
           │                              parse → chunk(ti) → embed
           │                                           │
-   retrieve top-k  ◄────────────────────── PostgresVectorStore (pgvector)
+   retrieve top-k  ◄────────────────────── RoutedVectorStore
           │
           ▼
        LLMPort.generate / generate_stream
@@ -27,13 +27,14 @@ Chatbot con **arquitectura hexagonal**, **LiteLLM**, ingestión RAG de **PDF / D
 |------|-----------------|
 | `domain/` | Entidades, excepciones y puertos |
 | `application/` | `ChatService`, `IngestionService`, guardarraíles, chunker |
-| `infrastructure/` | Parsers, embeddings, Postgres/pgvector, FastAPI, UI estática |
+| `infrastructure/` | Parsers, embeddings, Postgres/pgvector, Neo4j, FastAPI, UI estática |
 | `core/` | Singletons `Env` (lazy) y `AsyncHttpClient` |
 
 ### Presentación
 
 - UI en `/` (chat) y `/documents` (subir / listar / borrar).
 - Chat por **SSE** (`POST /api/v1/chat/stream`): solo la conversación actual en `sessionStorage`.
+- Selector de flujo en la UI: `PostgreSQL` o `Neo4j` para el retrieval.
 - Guardarraíles: toxicidad (patrones) + umbral `RAG_MIN_SCORE` + prompts de alcance en BD.
 - Ingestión: validación de **MIME**, extensión y magic bytes.
 - Prompts markdown en tabla `prompts`: `system` (`{context}`) y `user_message` (`{question}`).
@@ -56,6 +57,7 @@ Chatbot con **arquitectura hexagonal**, **LiteLLM**, ingestión RAG de **PDF / D
 - Python ≥ 3.11
 - [UV](https://docs.astral.sh/uv/)
 - PostgreSQL con extensión **pgvector**
+- Neo4j 5.x o compatible con índice vectorial
 - Ollama (si usas modelos `ollama/...`), p.ej. chat + `nomic-embed-text`
 - Docker / kubectl (opcional)
 
@@ -67,6 +69,10 @@ Copia `.env.example` a `.env` y ajusta:
 |----------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL async | `postgresql+asyncpg://chatbot:chatbot@localhost:5432/chatbot` |
 | `EMBEDDING_DIMENSION` | Dimensión de vectores | `768` |
+| `VECTOR_BACKEND` | Backend por defecto para retrieval | `postgres` |
+| `NEO4J_URI` | URI Bolt de Neo4j | `bolt://localhost:7687` |
+| `NEO4J_USERNAME` / `NEO4J_PASSWORD` | Credenciales Neo4j | `neo4j` / `password` |
+| `NEO4J_VECTOR_INDEX` | Nombre del índice vectorial | `chunk_embeddings` |
 | `LLM_PROVIDER` | Proveedor LLM | `litellm`, `ollama` o `mock` |
 | `LITELLM_MODEL` | Modelo de chat | `ollama/qwen2.5:3b` |
 | `LITELLM_EMBEDDING_MODEL` | Modelo de embeddings | `ollama/nomic-embed-text` |
@@ -101,6 +107,8 @@ uv run uvicorn chatbot.main:app --reload --host 0.0.0.0 --port 8000
 
 Abre la UI en [http://localhost:8000/](http://localhost:8000/).
 
+Los documentos se siguen indexando en **PostgreSQL** y, si `NEO4J_ENABLED=true`, también se replican en **Neo4j** para permitir cambiar el flujo desde el botón del chat sin reingestar.
+
 ### API rápida
 
 ```bash
@@ -117,13 +125,13 @@ curl http://localhost:8000/api/v1/documents
 # Chat clásico (JSON completo)
 curl -X POST http://localhost:8000/api/v1/chat \
   -H "Content-Type: application/json" \
-  -d "{\"message\": \"Resume el documento\"}"
+  -d "{\"message\": \"Resume el documento\", \"retrieval_backend\": \"postgres\"}"
 
 # Chat streaming (SSE)
 curl -N -X POST http://localhost:8000/api/v1/chat/stream \
   -H "Content-Type: application/json" \
   -H "Accept: text/event-stream" \
-  -d "{\"message\": \"Resume el documento\"}"
+  -d "{\"message\": \"Resume el documento\", \"retrieval_backend\": \"neo4j\"}"
 ```
 
 Formatos soportados: `.pdf`, `.docx`, `.xlsx` / `.xlsm` (con MIME coincidente).
@@ -142,6 +150,8 @@ make up-docker
 # o: docker compose --profile docker up --build
 ```
 
+Esto levanta `postgres`, `neo4j`, `ollama`, `ollama-init` y `chatbot`.
+
 Cambia modelos con:
 
 ```bash
@@ -150,17 +160,24 @@ LITELLM_MODEL=ollama/llama3.2:3b OLLAMA_MODEL=llama3.2:3b make up-docker
 
 ## Kubernetes
 
+Necesitas un cluster. En local, `make up-k8s` crea uno con **kind** si no existe:
+
 ```bash
-make up-k8s      # build imagen + kubectl apply
+make up-k8s      # kind + build imagen + apply
 make k8s-status
 make k8s-pf      # port-forward → http://localhost:8000
 make down-k8s
+make k8s-cluster-delete
 ```
+
+Si ves el error de `localhost:8080`, no hay kubeconfig/cluster: ejecuta `make k8s-cluster` primero (o `make up-k8s`).
 
 Manual:
 
 ```bash
+# kind create cluster --name rag-chatbot   # solo la primera vez
 docker build -t rag-chatbot:0.1.0 .
+kind load docker-image rag-chatbot:0.1.0 --name rag-chatbot
 bash k8s/apply.sh
 kubectl -n rag-chatbot port-forward svc/chatbot 8000:8000
 ```
@@ -176,7 +193,7 @@ src/chatbot/
       api/                # FastAPI + UI estática + MIME
       ingestion/          # PDF / DOCX / XLSX parsers
       llm/                # LiteLLM chat + embeddings (+ stream)
-      persistence/        # conversaciones + vector store memoria
+      persistence/        # Postgres, Neo4j y router de backends
     config/
     container.py
 ```

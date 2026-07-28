@@ -111,10 +111,10 @@ async def test_generate_stream_yields_deltas(adapter: LiteLLMAdapter) -> None:
 
 @pytest.mark.asyncio
 async def test_health_check_ok(adapter: LiteLLMAdapter) -> None:
-    mock_response = SimpleNamespace(status_code=200)
-    mock_http = SimpleNamespace(get=AsyncMock(return_value=mock_response))
+    mock_http = AsyncMock()
+    mock_http.get.return_value = SimpleNamespace(status_code=200)
     with patch(
-        "chatbot.infrastructure.adapters.llm.litellm_adapter.AsyncHttpClient.get_instance",
+        "chatbot.core.http.AsyncHttpClient.get_instance",
         return_value=mock_http,
     ):
         assert await adapter.health_check() is True
@@ -124,9 +124,10 @@ async def test_health_check_ok(adapter: LiteLLMAdapter) -> None:
 
 @pytest.mark.asyncio
 async def test_health_check_failure(adapter: LiteLLMAdapter) -> None:
-    mock_http = SimpleNamespace(get=AsyncMock(side_effect=RuntimeError("boom")))
+    mock_http = AsyncMock()
+    mock_http.get.side_effect = RuntimeError("boom")
     with patch(
-        "chatbot.infrastructure.adapters.llm.litellm_adapter.AsyncHttpClient.get_instance",
+        "chatbot.core.http.AsyncHttpClient.get_instance",
         return_value=mock_http,
     ):
         assert await adapter.health_check() is False

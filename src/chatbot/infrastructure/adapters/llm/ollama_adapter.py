@@ -57,16 +57,19 @@ class OllamaAdapter(LLMPort):  # pylint: disable=too-many-instance-attributes
             payload_messages.append({"role": "system", "content": system_prompt})
         for message in messages:
             payload_messages.append({"role": message.role.value, "content": message.content})
-        return {
+        payload: dict[str, object] = {
             "model": self._model,
             "messages": payload_messages,
             "stream": stream,
-            "think": self._think,
             "options": {
                 "temperature": self._temperature,
                 "num_predict": self._num_predict,
             },
         }
+        # qwen2.5 y similares rechazan think con HTTP 400.
+        if self._think:
+            payload["think"] = True
+        return payload
 
     def _map_http_error(self, exc: Exception, *, stream: bool = False) -> Exception:
         suffix = " (stream)" if stream else ""
@@ -83,10 +86,13 @@ class OllamaAdapter(LLMPort):  # pylint: disable=too-many-instance-attributes
                 provider="ollama",
             )
         if isinstance(exc, httpx.HTTPStatusError):
-            detail = exc.response.text
+            try:
+                detail = exc.response.text
+            except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+                detail = str(exc)
             logger.error("Error HTTP de Ollama%s: %s", suffix, detail)
             return LLMProviderError(
-                f"Ollama respondió con error HTTP {exc.response.status_code}: {detail}",
+                f"Ollama error HTTP {exc.response.status_code}: {detail}",
                 provider="ollama",
             )
         logger.exception("Error inesperado en OllamaAdapter%s", suffix)

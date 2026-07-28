@@ -73,6 +73,7 @@ async def chat(payload: ChatRequest, request: Request) -> ChatResponse:
     reply = await service.chat(
         payload.message,
         conversation_id=payload.conversation_id,
+        retrieval_backend=payload.retrieval_backend,
     )
     return ChatResponse(
         conversation_id=reply.conversation_id,
@@ -94,6 +95,7 @@ async def chat_stream(payload: ChatRequest, request: Request) -> StreamingRespon
             async for event in service.chat_stream(
                 payload.message,
                 conversation_id=payload.conversation_id,
+                retrieval_backend=payload.retrieval_backend,
             ):
                 if isinstance(event, StreamMeta):
                     yield _sse(

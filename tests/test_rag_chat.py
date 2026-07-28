@@ -9,6 +9,7 @@ import pytest
 from chatbot.application.services.chat_service import ChatService
 from chatbot.domain.documents import DocumentChunk
 from chatbot.domain.entities import Message, Role
+from chatbot.domain.exceptions import ConfigurationError
 from chatbot.domain.llm_stream import LLMDelta
 from chatbot.domain.ports import LLMPort
 from chatbot.infrastructure.adapters.llm.embedding_adapter import MockEmbeddingAdapter
@@ -16,6 +17,7 @@ from chatbot.infrastructure.adapters.persistence.memory_repository import (
     InMemoryConversationRepository,
 )
 from chatbot.infrastructure.adapters.persistence.memory_vector_store import InMemoryVectorStore
+from chatbot.infrastructure.adapters.persistence.routed_vector_store import RoutedVectorStore
 from tests.prompt_fixtures import default_prompt_repo
 
 
@@ -188,9 +190,71 @@ async def test_sources_dedupe_same_document() -> None:
         vector_store=store,
         rag_top_k=4,
     )
+
     from chatbot.application.services.chat_service import StreamMeta
 
     events = [event async for event in service.chat_stream("¿Plazo?")]
     meta = next(e for e in events if isinstance(e, StreamMeta))
     assert len(meta.sources) == 1
     assert meta.sources[0]["id"] == "doc-1"
+
+
+@pytest.mark.asyncio
+async def test_chat_can_choose_neo4j_flow() -> None:
+    embeddings = MockEmbeddingAdapter()
+    postgres = InMemoryVectorStore()
+    neo4j = InMemoryVectorStore()
+    pg_vector = (await embeddings.embed(["contenido desde postgres"]))[0]
+    neo_vector = (await embeddings.embed(["contenido desde neo4j"]))[0]
+    await postgres.upsert(
+        [
+            DocumentChunk(
+                document_id="doc-pg",
+                content="contenido desde postgres",
+                metadata={"filename": "pg.docx", "format": "docx"},
+                embedding=pg_vector,
+            )
+        ]
+    )
+    await neo4j.upsert(
+        [
+            DocumentChunk(
+                document_id="doc-neo",
+                content="contenido desde neo4j",
+                metadata={"filename": "neo.docx", "format": "docx"},
+                embedding=neo_vector,
+            )
+        ]
+    )
+    llm = CapturingLLM()
+    service = ChatService(
+        llm=llm,
+        repository=InMemoryConversationRepository(),
+        prompts=default_prompt_repo(),
+        embeddings=embeddings,
+        vector_store=RoutedVectorStore(primary=postgres, neo4j=neo4j),
+        rag_top_k=1,
+    )
+
+    await service.chat("contenido desde neo4j", retrieval_backend="neo4j")
+
+    assert llm.last_system_prompt is not None
+    assert "neo.docx" in llm.last_system_prompt
+    assert "pg.docx" not in llm.last_system_prompt
+
+
+@pytest.mark.asyncio
+async def test_chat_rejects_unavailable_neo4j_flow() -> None:
+    embeddings = MockEmbeddingAdapter()
+    store = RoutedVectorStore(primary=InMemoryVectorStore(), neo4j=None)
+    service = ChatService(
+        llm=CapturingLLM(),
+        repository=InMemoryConversationRepository(),
+        prompts=default_prompt_repo(),
+        embeddings=embeddings,
+        vector_store=store,
+        rag_top_k=1,
+    )
+
+    with pytest.raises(ConfigurationError):
+        await service.chat("hola", retrieval_backend="neo4j")

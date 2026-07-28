@@ -91,6 +91,7 @@ class ChatService:
         user_message: str,
         *,
         conversation_id: str | None = None,
+        retrieval_backend: str | None = None,
     ) -> ChatReply:
         content = (user_message or "").strip()
         if not content:
@@ -102,7 +103,7 @@ class ChatService:
         conversation = await self._resolve_conversation(conversation_id)
         conversation.add_message(Message(role=Role.USER, content=content))
 
-        retrieved = await self._retrieve(content)
+        retrieved = await self._retrieve(content, retrieval_backend=retrieval_backend)
         if self._guardrails is not None and not self._guardrails.is_in_scope(
             [item.score for item in retrieved]
         ):
@@ -156,6 +157,7 @@ class ChatService:
         user_message: str,
         *,
         conversation_id: str | None = None,
+        retrieval_backend: str | None = None,
     ) -> AsyncIterator[StreamEvent]:
         content = (user_message or "").strip()
         if not content:
@@ -167,7 +169,7 @@ class ChatService:
         conversation = await self._resolve_conversation(conversation_id)
         conversation.add_message(Message(role=Role.USER, content=content))
 
-        retrieved = await self._retrieve(content)
+        retrieved = await self._retrieve(content, retrieval_backend=retrieval_backend)
         sources = self._sources_payload(retrieved)
         yield StreamMeta(
             conversation_id=conversation.id,
@@ -244,12 +246,24 @@ class ChatService:
             return Conversation(id=cid)
         return conversation
 
-    async def _retrieve(self, query: str) -> list[RetrievedChunk]:
+    async def _retrieve(
+        self,
+        query: str,
+        *,
+        retrieval_backend: str | None = None,
+    ) -> list[RetrievedChunk]:
         if self._embeddings is None or self._vector_store is None:
             return []
         vectors = await self._embeddings.embed([query])
         if not vectors:
             return []
+        search_backend = getattr(self._vector_store, "search_backend", None)
+        if callable(search_backend) and retrieval_backend:
+            return await search_backend(
+                retrieval_backend,
+                vectors[0],
+                top_k=self._rag_top_k,
+            )
         return await self._vector_store.search(vectors[0], top_k=self._rag_top_k)
 
     async def _build_llm_payload(

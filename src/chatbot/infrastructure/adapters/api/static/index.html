@@ -48,6 +48,17 @@
           <p id="status" class="status-line" role="status"></p>
 
           <form id="chat-form" class="composer">
+            <fieldset class="flow-picker">
+              <legend>Flujo RAG</legend>
+              <label>
+                <input type="radio" name="retrieval-backend" value="postgres" checked />
+                PostgreSQL
+              </label>
+              <label>
+                <input type="radio" name="retrieval-backend" value="neo4j" />
+                Neo4j
+              </label>
+            </fieldset>
             <label class="visually-hidden" for="message-input">Mensaje</label>
             <textarea
               id="message-input"

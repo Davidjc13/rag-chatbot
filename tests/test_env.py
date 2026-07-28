@@ -52,3 +52,15 @@ def test_empty_optional_becomes_none(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LITELLM_API_KEY", "")
     env = Env.get_instance()
     assert env.litellm_api_key is None
+
+
+def test_vector_backend_defaults_and_neo4j_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VECTOR_BACKEND", "neo4j")
+    monkeypatch.setenv("NEO4J_URI", "bolt://graph:7687")
+    monkeypatch.setenv("NEO4J_USERNAME", "neo")
+    monkeypatch.setenv("NEO4J_PASSWORD", "secret")
+    env = Env.get_instance()
+    assert env.vector_backend == "neo4j"
+    assert env.neo4j_uri == "bolt://graph:7687"
+    assert env.neo4j_username == "neo"
+    assert env.neo4j_password == "secret"

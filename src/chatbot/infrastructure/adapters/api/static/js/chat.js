@@ -21,6 +21,7 @@ const refsListEl = document.getElementById("refs-list");
 const refsEmptyEl = document.getElementById("refs-empty");
 const conversationsListEl = document.getElementById("conversations-list");
 const conversationsEmptyEl = document.getElementById("conversations-empty");
+const flowEls = document.querySelectorAll('input[name="retrieval-backend"]');
 
 let conversationId = getActiveConversationId();
 let streaming = false;
@@ -250,6 +251,11 @@ async function switchConversation(id) {
   }
 }
 
+function selectedBackend() {
+  const checked = [...flowEls].find((el) => el.checked);
+  return checked?.value || "postgres";
+}
+
 newBtn.addEventListener("click", () => {
   if (streaming) return;
   startNewConversation();
@@ -273,7 +279,7 @@ formEl.addEventListener("submit", async (event) => {
   sendBtn.disabled = true;
   newBtn.disabled = true;
   inputEl.value = "";
-  setStatus("Generando…");
+  setStatus(`Generando con ${selectedBackend() === "neo4j" ? "Neo4j" : "PostgreSQL"}…`);
 
   appendMessage("user", message);
   const { article, body: assistantBody } = appendMessage("assistant", "");
@@ -286,8 +292,13 @@ formEl.addEventListener("submit", async (event) => {
     await streamChat({
       message,
       conversationId: activeId,
+      retrievalBackend: selectedBackend(),
       handlers: {
         onMeta(data) {
+          if (data.conversation_id) {
+            conversationId = data.conversation_id;
+            setActiveConversationId(conversationId);
+          }
           if (Array.isArray(data.sources)) {
             upsertReferences(data.sources);
           }

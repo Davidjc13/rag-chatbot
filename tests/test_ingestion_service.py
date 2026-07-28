@@ -13,6 +13,7 @@ from chatbot.domain.exceptions import DocumentNotFoundError, ValidationError
 from chatbot.infrastructure.adapters.ingestion.parser_factory import DocumentParserFactory
 from chatbot.infrastructure.adapters.llm.embedding_adapter import MockEmbeddingAdapter
 from chatbot.infrastructure.adapters.persistence.memory_vector_store import InMemoryVectorStore
+from chatbot.infrastructure.adapters.persistence.routed_vector_store import RoutedVectorStore
 
 
 def _docx_bytes() -> bytes:
@@ -66,3 +67,20 @@ async def test_delete_document(ingestion_service: IngestionService) -> None:
     result = await ingestion_service.ingest(filename="policy.docx", data=_docx_bytes())
     await ingestion_service.delete_document(result.document_id)
     assert await ingestion_service.list_documents() == []
+
+
+@pytest.mark.asyncio
+async def test_ingest_mirrors_chunks_to_secondary_backend() -> None:
+    primary = InMemoryVectorStore()
+    secondary = InMemoryVectorStore()
+    service = IngestionService(
+        parser_factory=DocumentParserFactory(),
+        chunker=TableAwareChunker(chunk_size=400, chunk_overlap=40),
+        embeddings=MockEmbeddingAdapter(),
+        vector_store=RoutedVectorStore(primary=primary, neo4j=secondary),
+    )
+
+    result = await service.ingest(filename="policy.docx", data=_docx_bytes())
+
+    assert await primary.get_document(result.document_id) is not None
+    assert await secondary.get_document(result.document_id) is not None

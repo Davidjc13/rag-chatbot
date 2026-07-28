@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 
+from neo4j import AsyncDriver, AsyncGraphDatabase
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from chatbot.application.services.chat_service import ChatService
@@ -21,9 +22,13 @@ from chatbot.domain.ports import (
     PromptRepositoryPort,
     VectorStorePort,
 )
+from chatbot.domain.retrieval import RETRIEVAL_BACKEND_POSTGRES
 from chatbot.infrastructure.adapters.ingestion.parser_factory import DocumentParserFactory
 from chatbot.infrastructure.adapters.llm.embedding_adapter import LiteLLMEmbeddingAdapter
 from chatbot.infrastructure.adapters.llm.llm_factory import LLMFactory
+from chatbot.infrastructure.adapters.persistence.neo4j_vector_store import (
+    Neo4jVectorStore,
+)
 from chatbot.infrastructure.adapters.persistence.postgres.conversation_repository import (
     PostgresConversationRepository,
 )
@@ -40,6 +45,9 @@ from chatbot.infrastructure.adapters.persistence.postgres.schema import (
 )
 from chatbot.infrastructure.adapters.persistence.postgres.vector_store import (
     PostgresVectorStore,
+)
+from chatbot.infrastructure.adapters.persistence.routed_vector_store import (
+    RoutedVectorStore,
 )
 
 logger = logging.getLogger(__name__)
@@ -76,7 +84,25 @@ class AppContainer:  # pylint: disable=too-many-instance-attributes
             api_key=self.env.litellm_api_key,
             timeout_seconds=self.env.litellm_embedding_timeout_seconds,
         )
-        self.vector_store: VectorStorePort = PostgresVectorStore(self.session_factory)
+        self.postgres_vector_store: VectorStorePort = PostgresVectorStore(self.session_factory)
+        self.neo4j_driver: AsyncDriver | None = None
+        self.neo4j_vector_store: Neo4jVectorStore | None = None
+        if self.env.neo4j_enabled:
+            self.neo4j_driver = AsyncGraphDatabase.driver(
+                self.env.neo4j_uri,
+                auth=(self.env.neo4j_username, self.env.neo4j_password),
+            )
+            self.neo4j_vector_store = Neo4jVectorStore(
+                self.neo4j_driver,
+                database=self.env.neo4j_database,
+                vector_index_name=self.env.neo4j_vector_index,
+                embedding_dimension=self.env.neo4j_embedding_dimension,
+            )
+        self.vector_store: VectorStorePort = RoutedVectorStore(
+            primary=self.postgres_vector_store,
+            neo4j=self.neo4j_vector_store,
+            default_backend=self.env.vector_backend or RETRIEVAL_BACKEND_POSTGRES,
+        )
         self.parser_factory = DocumentParserFactory()
         self.chunker = TableAwareChunker(
             chunk_size=self.env.chunk_size,
@@ -109,6 +135,8 @@ class AppContainer:  # pylint: disable=too-many-instance-attributes
                 "model": self.env.active_model,
                 "embedding_model": self.env.litellm_embedding_model,
                 "embedding_api_base": embedding_api_base,
+                "vector_backend": self.env.vector_backend,
+                "neo4j_enabled": self.env.neo4j_enabled,
             },
         )
 
@@ -118,9 +146,13 @@ class AppContainer:  # pylint: disable=too-many-instance-attributes
             embedding_dimension=self.env.embedding_dimension,
         )
         await seed_prompts(self.session_factory)
+        if self.neo4j_vector_store is not None:
+            await self.neo4j_vector_store.initialize()
 
     async def shutdown(self) -> None:
         await self.http.aclose()
+        if self.neo4j_vector_store is not None:
+            await self.neo4j_vector_store.close()
         await self.engine.dispose()
 
     @staticmethod

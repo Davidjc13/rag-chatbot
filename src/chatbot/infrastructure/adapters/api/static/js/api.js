@@ -42,13 +42,14 @@ export async function getConversation(conversationId) {
  * Consume SSE de POST /chat/stream.
  * handlers: { onMeta, onThinking, onToken, onDone, onError }
  */
-export async function streamChat({ message, conversationId, handlers }) {
+export async function streamChat({ message, conversationId, retrievalBackend, handlers }) {
   const response = await fetch(`${API_BASE}/chat/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
     body: JSON.stringify({
       message,
       conversation_id: conversationId || null,
+      retrieval_backend: retrievalBackend || "postgres",
     }),
   });
 
