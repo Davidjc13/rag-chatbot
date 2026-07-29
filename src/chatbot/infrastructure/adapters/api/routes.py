@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, File, Request, UploadFile
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
 from chatbot.application.services.chat_service import (
@@ -15,6 +15,7 @@ from chatbot.application.services.chat_service import (
     StreamThinking,
     StreamToken,
 )
+from chatbot.application.services.eval_service import EvalService
 from chatbot.application.services.ingestion_service import IngestionService
 from chatbot.core.env import Env
 from chatbot.domain.exceptions import ChatbotError
@@ -26,10 +27,23 @@ from chatbot.infrastructure.adapters.api.schemas import (
     ConversationResponse,
     DocumentListResponse,
     DocumentSummaryResponse,
+    EvalDatasetStatusResponse,
+    EvalImportRequest,
+    EvalRunListResponse,
+    EvalRunResponse,
+    EvalRunSampleResponse,
+    EvalRunSamplesResponse,
+    EvalRunStartRequest,
+    EvalSuiteConfigRequest,
+    EvalSuiteCreateRequest,
+    EvalSuiteListResponse,
+    EvalSuiteResponse,
+    EvalSuiteUpdateRequest,
     HealthResponse,
     IngestionResponse,
     MessageResponse,
 )
+from evals.domain import EvalRunSummary, EvalSuite, EvalSuiteConfig
 
 router = APIRouter()
 
@@ -40,6 +54,10 @@ def _chat_service(request: Request) -> ChatService:
 
 def _ingestion_service(request: Request) -> IngestionService:
     return request.app.state.ingestion_service
+
+
+def _eval_service(request: Request) -> EvalService:
+    return request.app.state.eval_service
 
 
 def _llm(request: Request) -> LLMPort:
@@ -193,3 +211,227 @@ async def list_documents(request: Request) -> DocumentListResponse:
 async def delete_document(document_id: str, request: Request) -> None:
     service = _ingestion_service(request)
     await service.delete_document(document_id)
+
+
+def _suite_config_from_request(payload: EvalSuiteConfigRequest) -> EvalSuiteConfig:
+    return EvalSuiteConfig(
+        limit=payload.limit,
+        distractors=payload.distractors,
+        top_k=payload.top_k,
+        seed=payload.seed,
+        generate=payload.generate,
+        ragas=payload.ragas,
+        ragas_timeout=payload.ragas_timeout,
+    )
+
+
+def _suite_config_to_response(config: EvalSuiteConfig) -> EvalSuiteConfigRequest:
+    return EvalSuiteConfigRequest(
+        limit=config.limit,
+        distractors=config.distractors,
+        top_k=config.top_k,
+        seed=config.seed,
+        generate=config.generate,
+        ragas=config.ragas,
+        ragas_timeout=config.ragas_timeout,
+    )
+
+
+def _suite_to_response(suite: EvalSuite) -> EvalSuiteResponse:
+    return EvalSuiteResponse(
+        id=suite.id,
+        name=suite.name,
+        dataset_id=suite.dataset_id,
+        description=suite.description,
+        config=_suite_config_to_response(suite.config),
+        sample_ids=list(suite.sample_ids),
+        created_at=suite.created_at,
+    )
+
+
+def _run_to_response(run: EvalRunSummary) -> EvalRunResponse:
+    return EvalRunResponse(
+        id=run.id,
+        suite_id=run.suite_id,
+        dataset_id=run.dataset_id,
+        name=run.name,
+        status=run.status,
+        mode=run.mode,
+        config=run.config,
+        retrieval_metrics=run.retrieval_metrics,
+        ragas_metrics=run.ragas_metrics,
+        error=run.error,
+        started_at=run.started_at,
+        finished_at=run.finished_at,
+    )
+
+
+@router.get(
+    "/evals/datasets/bioasq",
+    response_model=EvalDatasetStatusResponse | None,
+    tags=["evals"],
+)
+async def get_bioasq_dataset_status(request: Request) -> EvalDatasetStatusResponse | None:
+    service = _eval_service(request)
+    status = await service.get_bioasq_status()
+    if status is None:
+        return None
+    return EvalDatasetStatusResponse(
+        dataset_id=status.dataset_id,
+        name=status.name,
+        hf_source=status.hf_source,
+        passage_count=status.passage_count,
+        qa_count=status.qa_count,
+        imported_at=status.imported_at,
+        import_stats=status.import_stats,
+    )
+
+
+@router.post(
+    "/evals/datasets/bioasq/import",
+    response_model=EvalDatasetStatusResponse,
+    tags=["evals"],
+)
+async def import_bioasq_dataset(
+    request: Request,
+    payload: EvalImportRequest | None = None,
+) -> EvalDatasetStatusResponse:
+    service = _eval_service(request)
+    status = await service.import_bioasq(force=bool(payload and payload.force))
+    return EvalDatasetStatusResponse(
+        dataset_id=status.dataset_id,
+        name=status.name,
+        hf_source=status.hf_source,
+        passage_count=status.passage_count,
+        qa_count=status.qa_count,
+        imported_at=status.imported_at,
+        import_stats=status.import_stats,
+    )
+
+
+@router.get("/evals/suites", response_model=EvalSuiteListResponse, tags=["evals"])
+async def list_eval_suites(request: Request) -> EvalSuiteListResponse:
+    service = _eval_service(request)
+    suites = await service.list_suites()
+    return EvalSuiteListResponse(suites=[_suite_to_response(s) for s in suites])
+
+
+@router.post("/evals/suites", response_model=EvalSuiteResponse, tags=["evals"])
+async def create_eval_suite(
+    payload: EvalSuiteCreateRequest,
+    request: Request,
+) -> EvalSuiteResponse:
+    service = _eval_service(request)
+    suite = await service.create_suite(
+        name=payload.name,
+        description=payload.description,
+        config=_suite_config_from_request(payload.config),
+        sample_ids=payload.sample_ids,
+    )
+    return _suite_to_response(suite)
+
+
+@router.get("/evals/suites/{suite_id}", response_model=EvalSuiteResponse, tags=["evals"])
+async def get_eval_suite(suite_id: str, request: Request) -> EvalSuiteResponse:
+    service = _eval_service(request)
+    suite = await service.get_suite(suite_id)
+    if suite is None:
+        raise HTTPException(status_code=404, detail="Suite no encontrada")
+    return _suite_to_response(suite)
+
+
+@router.patch("/evals/suites/{suite_id}", response_model=EvalSuiteResponse, tags=["evals"])
+async def update_eval_suite(
+    suite_id: str,
+    payload: EvalSuiteUpdateRequest,
+    request: Request,
+) -> EvalSuiteResponse:
+    service = _eval_service(request)
+    suite = await service.update_suite(
+        suite_id,
+        name=payload.name,
+        description=payload.description,
+        config=_suite_config_from_request(payload.config) if payload.config else None,
+        sample_ids=payload.sample_ids,
+    )
+    if suite is None:
+        raise HTTPException(status_code=404, detail="Suite no encontrada")
+    return _suite_to_response(suite)
+
+
+@router.delete("/evals/suites/{suite_id}", status_code=204, tags=["evals"])
+async def delete_eval_suite(suite_id: str, request: Request) -> None:
+    service = _eval_service(request)
+    deleted = await service.delete_suite(suite_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Suite no encontrada")
+
+
+@router.get("/evals/runs", response_model=EvalRunListResponse, tags=["evals"])
+async def list_eval_runs(request: Request) -> EvalRunListResponse:
+    service = _eval_service(request)
+    runs = await service.list_runs()
+    return EvalRunListResponse(runs=[_run_to_response(r) for r in runs])
+
+
+@router.post("/evals/runs", response_model=EvalRunResponse, tags=["evals"])
+async def start_eval_run(
+    payload: EvalRunStartRequest,
+    request: Request,
+) -> EvalRunResponse:
+    service = _eval_service(request)
+    config = _suite_config_from_request(payload.config) if payload.config else None
+    try:
+        run = await service.start_run(
+            suite_id=payload.suite_id,
+            name=payload.name,
+            config=config,
+            use_db=payload.use_db,
+        )
+    except ValueError as exc:
+        raise ChatbotError(str(exc), code="invalid_request") from exc
+    return _run_to_response(run)
+
+
+@router.get("/evals/runs/{run_id}", response_model=EvalRunResponse, tags=["evals"])
+async def get_eval_run(run_id: str, request: Request) -> EvalRunResponse:
+    service = _eval_service(request)
+    run = await service.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run no encontrado")
+    return _run_to_response(run)
+
+
+@router.get(
+    "/evals/runs/{run_id}/samples",
+    response_model=EvalRunSamplesResponse,
+    tags=["evals"],
+)
+async def get_eval_run_samples(
+    run_id: str,
+    request: Request,
+    offset: int = 0,
+    limit: int = 50,
+) -> EvalRunSamplesResponse:
+    service = _eval_service(request)
+    run = await service.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run no encontrado")
+    samples, total = await service.get_run_samples(run_id, offset=offset, limit=limit)
+    return EvalRunSamplesResponse(
+        samples=[
+            EvalRunSampleResponse(
+                sample_id=s.sample_id,
+                question=s.question,
+                ground_truth=s.ground_truth,
+                answer=s.answer,
+                contexts=list(s.contexts),
+                retrieved_passage_ids=list(s.retrieved_passage_ids),
+                scores=list(s.scores),
+            )
+            for s in samples
+        ],
+        total=total,
+        offset=offset,
+        limit=limit,
+    )

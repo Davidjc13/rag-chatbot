@@ -9,10 +9,10 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 COPY pyproject.toml README.md ./
 COPY src ./src
-# Si existe uv.lock se usa --frozen para builds reproducibles
+COPY evals ./evals
 COPY uv.lock* ./
 
-RUN if [ -f uv.lock ]; then uv sync --frozen --no-dev; else uv sync --no-dev; fi
+RUN if [ -f uv.lock ]; then uv sync --frozen --extra eval --no-dev; else uv sync --extra eval --no-dev; fi
 
 FROM python:3.12-slim-bookworm AS runtime
 
@@ -23,6 +23,7 @@ RUN groupadd --system app && useradd --system --gid app --create-home app
 COPY --from=builder /app /app
 
 ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONPATH=/app \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     APP_ENV=production \

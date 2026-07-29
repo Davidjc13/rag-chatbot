@@ -143,6 +143,18 @@ uv run pytest -q
 uv run pylint src/chatbot
 ```
 
+### Evaluación BioASQ (retrieval)
+
+Dataset: [rag-mini-bioasq](https://huggingface.co/datasets/rag-datasets/rag-mini-bioasq). Detalle en [`evals/README.md`](evals/README.md).
+
+```bash
+make eval-bioasq                              # solo retrieval (hit@k / recall@k / mrr)
+LIMIT=50 make eval-bioasq
+EVAL_ARGS='--generate --ragas' make eval-bioasq   # más adelante: respuestas + juez
+```
+
+Salida en `evals/results/bioasq/retrieval_metrics.json`.
+
 ## Docker Compose
 
 ```bash

@@ -95,11 +95,15 @@ services:
     restart: unless-stopped
 
   ollama:
-    profiles: ["docker"]
+    profiles: ["docker", "eval"]
     image: ollama/ollama:latest
     container_name: rag-ollama
     # Sin publicar 11434 en el host: evita choque con Ollama local.
     # La app Docker habla por la red interna (http://ollama:11434).
+    gpus: all
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
     volumes:
       - ollama_data:/root/.ollama
     networks:
@@ -114,7 +118,7 @@ services:
 
   # Descarga el modelo al arrancar (one-shot)
   ollama-init:
-    profiles: ["docker"]
+    profiles: ["docker", "eval"]
     image: curlimages/curl:8.5.0
     container_name: rag-ollama-init
     depends_on:
@@ -150,6 +154,46 @@ services:
       - chatbot-net
     restart: "no"
 
+  # Evaluación BioASQ + RAGAS (one-shot). Uso: make eval-bioasq
+  eval-bioasq:
+    profiles: ["eval"]
+    build:
+      context: .
+      dockerfile: Dockerfile.eval
+    image: rag-chatbot-eval:0.1.0
+    container_name: rag-eval-bioasq
+    environment:
+      APP_ENV: evaluation
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_JSON: "false"
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      LITELLM_MODEL: ${LITELLM_MODEL:-ollama/qwen3:4b}
+      LITELLM_API_BASE: http://ollama:11434
+      LITELLM_EMBEDDING_MODEL: ${LITELLM_EMBEDDING_MODEL:-ollama/nomic-embed-text}
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:4b}
+      OLLAMA_THINK: ${OLLAMA_THINK:-false}
+      OLLAMA_NUM_PREDICT: ${OLLAMA_NUM_PREDICT:-4096}
+      OLLAMA_THINK_MAX_CHARS: ${OLLAMA_THINK_MAX_CHARS:-600}
+      OLLAMA_TIMEOUT_SECONDS: ${OLLAMA_TIMEOUT_SECONDS:-300}
+      RAG_TOP_K: ${RAG_TOP_K:-4}
+      CHUNK_SIZE: ${CHUNK_SIZE:-800}
+      CHUNK_OVERLAP: ${CHUNK_OVERLAP:-100}
+      HF_HOME: /app/evals/data/hf-cache
+      # No necesita Postgres/Neo4j (índice en memoria)
+      NEO4J_ENABLED: "false"
+    volumes:
+      - ./evals/results:/app/evals/results
+      - eval_hf_cache:/app/evals/data/hf-cache
+    depends_on:
+      ollama:
+        condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
+    networks:
+      - chatbot-net
+    restart: "no"
+
 networks:
   chatbot-net:
     driver: bridge
@@ -158,3 +202,4 @@ volumes:
   ollama_data:
   postgres_data:
   neo4j_data:
+  eval_hf_cache:

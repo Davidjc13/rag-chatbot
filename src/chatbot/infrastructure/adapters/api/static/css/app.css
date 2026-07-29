@@ -666,3 +666,112 @@ button.danger:hover:not(:disabled) {
     font-size: 1.35rem;
   }
 }
+
+.app-shell--evals {
+  max-width: 1100px;
+}
+
+.evals-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.evals-section {
+  padding: 1.25rem;
+}
+
+.button-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.92rem;
+}
+
+.field input,
+.field textarea {
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink);
+  padding: 0.5rem 0.65rem;
+  font: inherit;
+}
+
+.checkbox-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.75rem 0;
+}
+
+.eval-dialog {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--ink);
+  padding: 1.25rem;
+  max-width: 520px;
+  width: calc(100% - 2rem);
+}
+
+.eval-dialog--wide {
+  max-width: 860px;
+}
+
+.eval-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.metrics-grid div {
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.65rem 0.75rem;
+}
+
+.metrics-grid span {
+  display: block;
+  color: var(--ink-muted);
+  font-size: 0.85rem;
+}
+
+.meta-pill.status-completed {
+  color: var(--accent);
+}
+
+.meta-pill.status-failed {
+  color: var(--danger);
+}
+
+.meta-pill.status-running,
+.meta-pill.status-pending {
+  color: #f0c674;
+}

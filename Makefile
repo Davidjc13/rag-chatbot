@@ -210,6 +210,29 @@ k8s-cluster-delete: ## Elimina el cluster kind local
 test: ## Ejecuta pytest
 	$(UV) run pytest -q
 
+.PHONY: eval-sync
+eval-sync: ## Instala extras de evaluación en el host (opcional; make eval-bioasq usa Docker)
+	$(UV) sync --extra eval --extra dev
+
+.PHONY: eval-bioasq
+eval-bioasq: ## Evalúa retrieval BioASQ en Docker (LIMIT=10; EVAL_ARGS='--generate --ragas' opcional)
+	@mkdir -p evals/results/bioasq
+	$(COMPOSE) --profile eval build eval-bioasq
+	$(COMPOSE) --profile eval run --rm eval-bioasq \
+		--limit $${LIMIT:-10} \
+		--distractors $${DISTRACTORS:-50} \
+		--output-dir evals/results/bioasq \
+		$(EVAL_ARGS)
+	@echo "Resultados en evals/results/bioasq/"
+
+.PHONY: eval-bioasq-local
+eval-bioasq-local: ## Igual que eval-bioasq pero en el host (sin Docker)
+	$(UV) run python -m evals \
+		--limit $${LIMIT:-10} \
+		--distractors $${DISTRACTORS:-50} \
+		--output-dir evals/results/bioasq \
+		$(EVAL_ARGS)
+
 .PHONY: lint
 lint: ## Pylint sobre el paquete
 	$(UV) run pylint src/chatbot

@@ -33,6 +33,7 @@ def create_app(container: AppContainer | None = None) -> FastAPI:
         app.state.llm = app_container.llm
         app.state.chat_service = app_container.chat_service
         app.state.ingestion_service = app_container.ingestion_service
+        app.state.eval_service = app_container.eval_service
         try:
             yield
         finally:
@@ -64,5 +65,9 @@ def create_app(container: AppContainer | None = None) -> FastAPI:
         @app.get("/documents", include_in_schema=False)
         async def documents_page() -> FileResponse:
             return FileResponse(_STATIC_DIR / "documents.html")
+
+        @app.get("/evals", include_in_schema=False)
+        async def evals_page() -> FileResponse:
+            return FileResponse(_STATIC_DIR / "evals.html")
 
     return app

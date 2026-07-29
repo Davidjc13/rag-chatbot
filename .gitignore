@@ -10,6 +10,8 @@ __pycache__/
 .Python
 build/
 ragbench/
+evals/data/
+evals/results/
 develop-eggs/
 dist/
 downloads/

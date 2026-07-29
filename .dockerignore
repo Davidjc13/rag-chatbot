@@ -17,3 +17,6 @@ tests
 *.md
 !README.md
 k8s
+evals/results
+evals/data
+ragbench

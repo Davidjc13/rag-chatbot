@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Evaluaciones RAGAS — RAG Chatbot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,650&family=Source+Sans+3:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/css/app.css" />
+  </head>
+  <body>
+    <div class="app-shell app-shell--evals">
+      <header class="topbar">
+        <h1 class="brand">RAG Chatbot</h1>
+        <nav class="nav" aria-label="Principal">
+          <a href="/">Chat</a>
+          <a href="/documents">Documentos</a>
+          <a href="/evals" aria-current="page">Evaluaciones</a>
+        </nav>
+      </header>
+
+      <main class="evals-layout">
+        <section class="panel evals-section" aria-labelledby="dataset-heading">
+          <div class="docs-toolbar">
+            <h2 id="dataset-heading">Dataset BioASQ</h2>
+            <div class="button-row">
+              <button type="button" id="import-btn">Importar a Postgres</button>
+              <button type="button" id="reimport-btn" class="secondary">Reimportar</button>
+            </div>
+          </div>
+          <p id="dataset-status" class="status-line" role="status">Comprobando dataset…</p>
+        </section>
+
+        <section class="panel evals-section" aria-labelledby="suites-heading">
+          <div class="docs-toolbar">
+            <h2 id="suites-heading">Suites de prueba</h2>
+            <button type="button" id="new-suite-btn">Nueva suite</button>
+          </div>
+          <p id="suite-status" class="status-line" role="status"></p>
+          <table class="doc-table" aria-label="Suites de evaluación">
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Muestras</th>
+                <th>Modo</th>
+                <th>Creada</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="suites-body"></tbody>
+          </table>
+        </section>
+
+        <section class="panel evals-section" aria-labelledby="runs-heading">
+          <div class="docs-toolbar">
+            <h2 id="runs-heading">Ejecuciones</h2>
+            <button type="button" id="refresh-runs-btn" class="secondary compact">Actualizar</button>
+          </div>
+          <p id="run-status" class="status-line" role="status"></p>
+          <table class="doc-table" aria-label="Ejecuciones de evaluación">
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Estado</th>
+                <th>Hit@k</th>
+                <th>Recall@k</th>
+                <th>MRR</th>
+                <th>RAGAS</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="runs-body"></tbody>
+          </table>
+        </section>
+      </main>
+
+      <dialog id="suite-dialog" class="eval-dialog">
+        <form id="suite-form" method="dialog">
+          <h3 id="suite-dialog-title">Nueva suite de prueba</h3>
+          <label class="field">
+            <span>Nombre</span>
+            <input id="suite-name" type="text" required maxlength="256" />
+          </label>
+          <label class="field">
+            <span>Descripción</span>
+            <textarea id="suite-description" rows="2"></textarea>
+          </label>
+          <div class="field-grid">
+            <label class="field">
+              <span>Límite muestras</span>
+              <input id="cfg-limit" type="number" min="1" max="500" value="20" />
+            </label>
+            <label class="field">
+              <span>Distractores</span>
+              <input id="cfg-distractors" type="number" min="0" max="5000" value="50" />
+            </label>
+            <label class="field">
+              <span>Top-k</span>
+              <input id="cfg-top-k" type="number" min="1" max="50" placeholder="default" />
+            </label>
+            <label class="field">
+              <span>Semilla</span>
+              <input id="cfg-seed" type="number" value="42" />
+            </label>
+          </div>
+          <div class="checkbox-row">
+            <label><input id="cfg-generate" type="checkbox" /> Generar respuestas (LLM)</label>
+            <label><input id="cfg-ragas" type="checkbox" /> Métricas RAGAS</label>
+          </div>
+          <div class="dialog-actions">
+            <button type="button" id="suite-cancel-btn" class="secondary">Cancelar</button>
+            <button type="submit" id="suite-save-btn">Guardar</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog id="run-detail-dialog" class="eval-dialog eval-dialog--wide">
+        <div id="run-detail-content"></div>
+        <div class="dialog-actions">
+          <button type="button" id="run-detail-close" class="secondary">Cerrar</button>
+        </div>
+      </dialog>
+    </div>
+    <script type="module" src="/static/js/evals.js"></script>
+  </body>
+</html>

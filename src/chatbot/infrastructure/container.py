@@ -9,6 +9,7 @@ from neo4j import AsyncDriver, AsyncGraphDatabase
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from chatbot.application.services.chat_service import ChatService
+from chatbot.application.services.eval_service import EvalService
 from chatbot.application.services.guardrails import RuleBasedGuardrail
 from chatbot.application.services.ingestion_service import IngestionService
 from chatbot.application.services.table_aware_chunker import TableAwareChunker
@@ -35,6 +36,9 @@ from chatbot.infrastructure.adapters.persistence.postgres.conversation_repositor
 from chatbot.infrastructure.adapters.persistence.postgres.engine import (
     create_engine,
     create_session_factory,
+)
+from chatbot.infrastructure.adapters.persistence.postgres.eval_repository import (
+    PostgresEvalRepository,
 )
 from chatbot.infrastructure.adapters.persistence.postgres.prompt_repository import (
     PostgresPromptRepository,
@@ -77,6 +81,8 @@ class AppContainer:  # pylint: disable=too-many-instance-attributes
             self.session_factory
         )
         self.prompts: PromptRepositoryPort = PostgresPromptRepository(self.session_factory)
+        self.eval_repository = PostgresEvalRepository(self.session_factory)
+        self.eval_service = EvalService(repository=self.eval_repository, env=self.env)
         embedding_api_base = self._resolve_embedding_api_base(self.env)
         self.embeddings: EmbeddingPort = LiteLLMEmbeddingAdapter(
             model=self.env.litellm_embedding_model,

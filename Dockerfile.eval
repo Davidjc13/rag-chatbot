@@ -1,0 +1,43 @@
+# syntax=docker/dockerfile:1
+# Imagen one-shot para evaluación BioASQ + RAGAS.
+
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
+
+WORKDIR /app
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
+
+COPY pyproject.toml README.md ./
+COPY src ./src
+COPY evals ./evals
+COPY uv.lock* ./
+
+RUN if [ -f uv.lock ]; then \
+      uv sync --frozen --extra eval --no-dev; \
+    else \
+      uv sync --extra eval --no-dev; \
+    fi
+
+FROM python:3.12-slim-bookworm AS runtime
+
+WORKDIR /app
+
+RUN mkdir -p /app/evals/results /app/evals/data/hf-cache
+
+COPY --from=builder /app /app
+
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONPATH=/app \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    APP_ENV=evaluation \
+    LOG_JSON=false \
+    HF_HOME=/app/evals/data/hf-cache \
+    OLLAMA_THINK=false
+
+# Se ejecuta como root para poder escribir en bind mounts del host
+# (evals/results). Es un job one-shot, no un servicio expuesto.
+
+ENTRYPOINT ["python", "-m", "evals"]
+CMD ["--limit", "10", "--distractors", "50", "--output-dir", "evals/results/bioasq"]

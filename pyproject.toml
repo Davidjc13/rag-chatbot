@@ -30,6 +30,12 @@ dev = [
     "pylint>=3.3.0",
     "ruff>=0.7.0",
 ]
+eval = [
+    "datasets>=3.0.0",
+    "langchain-community>=0.3.0,<0.4",
+    "langchain-ollama>=0.2.0",
+    "ragas>=0.2.0",
+]
 
 [project.scripts]
 chatbot = "chatbot.main:run"
@@ -49,7 +55,7 @@ package = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 testpaths = ["tests"]
 
 [tool.ruff]

@@ -34,6 +34,57 @@ export async function uploadDocument(file) {
   return apiJson("/documents", { method: "POST", body });
 }
 
+export async function getBioasqDatasetStatus() {
+  return apiJson("/evals/datasets/bioasq");
+}
+
+export async function importBioasqDataset(force = false) {
+  return apiJson("/evals/datasets/bioasq/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ force }),
+  });
+}
+
+export async function listEvalSuites() {
+  return apiJson("/evals/suites");
+}
+
+export async function createEvalSuite(payload) {
+  return apiJson("/evals/suites", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteEvalSuite(suiteId) {
+  return apiJson(`/evals/suites/${encodeURIComponent(suiteId)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function listEvalRuns() {
+  return apiJson("/evals/runs");
+}
+
+export async function startEvalRun(payload) {
+  return apiJson("/evals/runs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getEvalRun(runId) {
+  return apiJson(`/evals/runs/${encodeURIComponent(runId)}`);
+}
+
+export async function getEvalRunSamples(runId, { offset = 0, limit = 50 } = {}) {
+  const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+  return apiJson(`/evals/runs/${encodeURIComponent(runId)}/samples?${params}`);
+}
+
 export async function getConversation(conversationId) {
   return apiJson(`/conversations/${encodeURIComponent(conversationId)}`);
 }
