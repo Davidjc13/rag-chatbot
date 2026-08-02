@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from evals.bioasq import BioASQPassage, BioASQSample, SanitizeStats
-from evals.domain import EvalSuite, EvalSuiteConfig
+from evals.domain import BIOASQ_DATASET_ID, EvalSuite, EvalSuiteConfig
 from chatbot.application.services.eval_service import EvalService
 from chatbot.infrastructure.adapters.persistence.postgres.eval_repository import (
     PostgresEvalRepository,
@@ -85,7 +85,7 @@ async def test_eval_service_build_passage_index() -> None:
 async def test_eval_service_load_samples_from_db_when_imported() -> None:
     repo = AsyncMock()
     repo.is_dataset_imported.return_value = True
-    repo.load_bioasq_eval_set.return_value = (
+    repo.load_dataset_eval_set.return_value = (
         [BioASQSample(id=1, question="q", ground_truth="a", relevant_passage_ids=(1,))],
         {1: BioASQPassage(id=1, text="p")},
         SanitizeStats(1, 1, 0, 0),
@@ -96,10 +96,11 @@ async def test_eval_service_load_samples_from_db_when_imported() -> None:
         config=EvalSuiteConfig(limit=5),
         cache_dir=None,
         use_db=True,
+        dataset_id=BIOASQ_DATASET_ID,
     )
     assert len(samples) == 1
     assert stats.kept_samples == 1
-    repo.load_bioasq_eval_set.assert_awaited_once()
+    repo.load_dataset_eval_set.assert_awaited_once_with(BIOASQ_DATASET_ID, limit=5)
 
 
 def test_eval_suite_config_asdict() -> None:
