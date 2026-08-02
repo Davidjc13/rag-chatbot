@@ -83,17 +83,115 @@ def _judge_model_name(env: Any) -> str:
     return _chat_model_name(env)
 
 
+def _split_ollama_chat_kwargs(
+    generation_kwargs: dict[str, Any],
+    *,
+    temperature: float,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Separa kwargs de chat Ollama: `think` va al top-level, el resto en `options`."""
+    gen = dict(generation_kwargs)
+    top_level: dict[str, Any] = {}
+    think = gen.pop("think", None)
+    if think is not None:
+        top_level["think"] = think
+    options = {"temperature": temperature, **gen}
+    return top_level, options
+
+
+def _ollama_chat_response(
+    chat_model: Any,
+    *,
+    model_name: str,
+    messages: list[dict[str, Any]],
+    schema: Any,
+    generation_kwargs: dict[str, Any],
+    temperature: float,
+) -> Any:
+    top_level, options = _split_ollama_chat_kwargs(
+        generation_kwargs,
+        temperature=temperature,
+    )
+    return chat_model.chat(
+        model=model_name,
+        messages=messages,
+        format=schema.model_json_schema() if schema else None,
+        options=options,
+        **top_level,
+    )
+
+
 def create_deepeval_model(env: Any) -> Any:
     """Crea el juez DeepEval (Ollama nativo; mejor JSON estructurado que LiteLLM local)."""
     configure_deepeval_runtime()
     base_url = _litellm_api_base(env)
     model_name = _judge_model_name(env)
 
-    # qwen3 vía LiteLLM suele devolver JSON inválido para el juez DeepEval.
     from deepeval.models import OllamaModel
+    from deepeval.utils import check_if_multimodal, convert_to_multi_modal_array
 
     ollama_timeout = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "300"))
-    return OllamaModel(
+
+    class FixedOllamaModel(OllamaModel):
+        """OllamaModel con `think` en top-level (qwen3 devuelve content vacío si va en options)."""
+
+        def generate(self, prompt: str, schema: Any = None) -> tuple[Any, float]:
+            from deepeval.models.llms.ollama_model import retry_ollama
+
+            @retry_ollama
+            def _generate() -> tuple[Any, float]:
+                chat_model = self.load_model()
+                if check_if_multimodal(prompt):
+                    multimodal = convert_to_multi_modal_array(prompt)
+                    messages = self.generate_messages(multimodal)
+                else:
+                    messages = [{"role": "user", "content": prompt}]
+
+                response = _ollama_chat_response(
+                    chat_model,
+                    model_name=self.name,
+                    messages=messages,
+                    schema=schema,
+                    generation_kwargs=self.generation_kwargs,
+                    temperature=self.temperature,
+                )
+                content = response.message.content
+                if schema:
+                    return schema.model_validate_json(content), 0
+                return content, 0
+
+            return _generate()
+
+        async def a_generate(self, prompt: str, schema: Any = None) -> tuple[Any, float]:
+            from deepeval.models.llms.ollama_model import retry_ollama
+
+            @retry_ollama
+            async def _a_generate() -> tuple[Any, float]:
+                chat_model = self.load_model(async_mode=True)
+                if check_if_multimodal(prompt):
+                    multimodal = convert_to_multi_modal_array(prompt)
+                    messages = self.generate_messages(multimodal)
+                else:
+                    messages = [{"role": "user", "content": prompt}]
+
+                top_level, options = _split_ollama_chat_kwargs(
+                    self.generation_kwargs,
+                    temperature=self.temperature,
+                )
+                response = await chat_model.chat(
+                    model=self.name,
+                    messages=messages,
+                    format=schema.model_json_schema() if schema else None,
+                    options=options,
+                    **top_level,
+                )
+                content = response.message.content
+                if schema:
+                    return schema.model_validate_json(content), 0
+                return content, 0
+
+            return await _a_generate()
+
+    return FixedOllamaModel(
         model=model_name,
         base_url=base_url,
         temperature=0.0,

@@ -116,7 +116,7 @@ python -m evals --use-db --limit 20 --generate --deepeval
 
 ## Notas
 
-- DeepEval usa `OllamaModel` nativo con `think=false` (mejor JSON que LiteLLM con qwen3 local).
+- DeepEval usa un `OllamaModel` personalizado con `think=false` en el **top-level** del chat (no dentro de `options`; con qwen3 el content queda vacío si va mal ubicado).
 - Override del juez: `DEEPEVAL_JUDGE_MODEL=qwen3:4b`.
 - La caché va a `DEEPEVAL_CACHE_FOLDER` (por defecto `~/.cache/deepeval`), no a `.deepeval` en el cwd.
 - En Docker eval, embeddings y juez apuntan a `http://ollama:11434`.

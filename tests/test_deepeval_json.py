@@ -12,7 +12,9 @@ from evals.deepeval_runner import (
     configure_deepeval_runtime,
     create_deepeval_model,
     _extract_metric_means,
+    _split_ollama_chat_kwargs,
 )
+from deepeval.models import OllamaModel
 from evals.domain import EvalSuiteConfig
 from evals.json_dataset import parse_json_dataset, slugify_dataset_id
 from evals.pipeline import RagSampleResult
@@ -76,7 +78,16 @@ def test_build_deepeval_test_cases() -> None:
     assert cases[0].actual_output == "A"
 
 
-def test_create_deepeval_model_uses_ollama() -> None:
+def test_split_ollama_chat_kwargs_moves_think_to_top_level() -> None:
+    top_level, options = _split_ollama_chat_kwargs(
+        {"think": False, "num_predict": 2048},
+        temperature=0.0,
+    )
+    assert top_level == {"think": False}
+    assert options == {"temperature": 0.0, "num_predict": 2048}
+
+
+def test_create_deepeval_model_uses_fixed_ollama_subclass() -> None:
     env = MagicMock()
     env.llm_provider = "litellm"
     env.active_model = "qwen3:4b"
@@ -84,14 +95,11 @@ def test_create_deepeval_model_uses_ollama() -> None:
     env.ollama_base_url = "http://localhost:11434"
 
     with patch.dict("os.environ", {}, clear=False):
-        with patch("deepeval.models.OllamaModel") as mock_model:
-            create_deepeval_model(env)
-    mock_model.assert_called_once()
-    kwargs = mock_model.call_args.kwargs
-    assert kwargs["model"] == "qwen3:4b"
-    assert kwargs["base_url"] == "http://localhost:11434"
-    assert kwargs["timeout"] == 300.0
-    assert kwargs["generation_kwargs"] == {"think": False, "num_predict": 2048}
+        model = create_deepeval_model(env)
+    assert isinstance(model, OllamaModel)
+    assert model.name == "qwen3:4b"
+    assert model.base_url == "http://localhost:11434"
+    assert model.generation_kwargs == {"think": False, "num_predict": 2048}
 
 
 def test_extract_metric_means_normalizes_keys() -> None:
