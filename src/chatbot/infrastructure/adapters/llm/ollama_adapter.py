@@ -172,6 +172,31 @@ class OllamaAdapter(LLMPort):  # pylint: disable=too-many-instance-attributes
                     if content:
                         produced_content = True
                         yield LLMDelta(text=str(content), kind="content")
+
+                    if data.get("done"):
+                        prompt_tokens = data.get("prompt_eval_count")
+                        output_tokens = data.get("eval_count")
+                        total_ns = data.get("total_duration")
+                        duration_ms = (
+                            int(total_ns / 1_000_000)
+                            if isinstance(total_ns, (int, float))
+                            else None
+                        )
+                        yield LLMDelta(
+                            text="",
+                            kind="content",
+                            input_tokens=(
+                                int(prompt_tokens)
+                                if isinstance(prompt_tokens, (int, float))
+                                else None
+                            ),
+                            output_tokens=(
+                                int(output_tokens)
+                                if isinstance(output_tokens, (int, float))
+                                else None
+                            ),
+                            duration_ms=duration_ms,
+                        )
         except LLMProviderError:
             raise
         except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:

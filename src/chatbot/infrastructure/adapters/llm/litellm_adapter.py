@@ -171,8 +171,20 @@ class LiteLLMAdapter(LLMPort):
             raise self._map_exception(exc) from exc
 
         produced = False
+        input_tokens: int | None = None
+        output_tokens: int | None = None
+        duration_ms: int | None = None
         try:
             async for chunk in response:
+                usage = getattr(chunk, "usage", None)
+                if usage is not None:
+                    prompt = getattr(usage, "prompt_tokens", None)
+                    completion = getattr(usage, "completion_tokens", None)
+                    if isinstance(prompt, int):
+                        input_tokens = prompt
+                    if isinstance(completion, int):
+                        output_tokens = completion
+
                 try:
                     delta = chunk.choices[0].delta.content
                 except (AttributeError, IndexError, KeyError, TypeError):
@@ -191,6 +203,15 @@ class LiteLLMAdapter(LLMPort):
             raise LLMProviderError(
                 "LiteLLM devolvió un stream vacío",
                 provider=_PROVIDER,
+            )
+
+        if input_tokens is not None or output_tokens is not None:
+            yield LLMDelta(
+                text="",
+                kind="content",
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                duration_ms=duration_ms,
             )
 
     async def health_check(self) -> bool:

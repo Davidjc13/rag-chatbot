@@ -50,8 +50,17 @@ class MockLLMAdapter(LLMPort):
         system_prompt: str | None = None,
     ) -> AsyncIterator[LLMDelta]:
         reply = self._build_reply(messages, system_prompt=system_prompt)
-        for word in reply.split(" "):
-            yield LLMDelta(text=f"{word} ", kind="content")
+        words = reply.split(" ")
+        for index, word in enumerate(words):
+            suffix = " " if index < len(words) - 1 else ""
+            yield LLMDelta(text=f"{word}{suffix}", kind="content")
+        yield LLMDelta(
+            text="",
+            kind="content",
+            input_tokens=42,
+            output_tokens=len(reply.split()),
+            duration_ms=10,
+        )
 
     async def health_check(self) -> bool:
         return True

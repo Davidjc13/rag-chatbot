@@ -3,19 +3,23 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from typing import Literal
 from uuid import UUID
 
 from chatbot.domain.documents import RetrievedChunk
 from chatbot.domain.entities import ChatReply, Conversation, Message, Role
 from chatbot.domain.exceptions import ConversationNotFoundError, ValidationError
 from chatbot.domain.ports import (
+    ChatGenerationTrace,
     ConversationRepositoryPort,
     EmbeddingPort,
     GuardrailPort,
     LLMPort,
     PromptRepositoryPort,
+    TracingPort,
     VectorStorePort,
 )
 from chatbot.domain.prompts import PROMPT_SYSTEM, PROMPT_USER_MESSAGE
@@ -76,6 +80,7 @@ class ChatService:
         embeddings: EmbeddingPort | None = None,
         vector_store: VectorStorePort | None = None,
         guardrails: GuardrailPort | None = None,
+        tracer: TracingPort | None = None,
         rag_top_k: int = 4,
     ) -> None:
         self._llm = llm
@@ -84,6 +89,7 @@ class ChatService:
         self._embeddings = embeddings
         self._vector_store = vector_store
         self._guardrails = guardrails
+        self._tracer = tracer
         self._rag_top_k = rag_top_k
 
     async def chat(
@@ -103,16 +109,27 @@ class ChatService:
         conversation = await self._resolve_conversation(conversation_id)
         conversation.add_message(Message(role=Role.USER, content=content))
 
-        retrieved = await self._retrieve(content, retrieval_backend=retrieval_backend)
+        retrieved, retrieval_duration_ms = await self._retrieve_timed(
+            content,
+            retrieval_backend=retrieval_backend,
+        )
         if self._guardrails is not None and not self._guardrails.is_in_scope(
             [item.score for item in retrieved]
         ):
-            assistant_message = Message(
-                role=Role.ASSISTANT,
-                content=self._guardrails.out_of_scope_message,
-            )
+            refusal = self._guardrails.out_of_scope_message
+            assistant_message = Message(role=Role.ASSISTANT, content=refusal)
             conversation.add_message(assistant_message)
             await self._repository.save(conversation)
+            self._record_chat_trace(
+                user_query=content,
+                retrieved=retrieved,
+                model_response=refusal,
+                conversation_id=conversation.id,
+                duration_ms=0,
+                retrieval_duration_ms=retrieval_duration_ms,
+                mode="sync",
+                retrieval_backend=retrieval_backend,
+            )
             return ChatReply(
                 conversation_id=conversation.id,
                 message=assistant_message,
@@ -131,10 +148,12 @@ class ChatService:
             },
         )
 
+        started = time.perf_counter()
         assistant_message = await self._llm.generate(
             llm_messages,
             system_prompt=system_prompt,
         )
+        duration_ms = int((time.perf_counter() - started) * 1000)
         if self._guardrails is not None:
             self._guardrails.check_output(assistant_message.content)
 
@@ -144,6 +163,17 @@ class ChatService:
         logger.info(
             "Respuesta generada",
             extra={"conversation_id": conversation.id, "model": self._llm.model_name},
+        )
+
+        self._record_chat_trace(
+            user_query=content,
+            retrieved=retrieved,
+            model_response=assistant_message.content,
+            conversation_id=conversation.id,
+            duration_ms=duration_ms,
+            retrieval_duration_ms=retrieval_duration_ms,
+            mode="sync",
+            retrieval_backend=retrieval_backend,
         )
 
         return ChatReply(
@@ -169,7 +199,10 @@ class ChatService:
         conversation = await self._resolve_conversation(conversation_id)
         conversation.add_message(Message(role=Role.USER, content=content))
 
-        retrieved = await self._retrieve(content, retrieval_backend=retrieval_backend)
+        retrieved, retrieval_duration_ms = await self._retrieve_timed(
+            content,
+            retrieval_backend=retrieval_backend,
+        )
         sources = self._sources_payload(retrieved)
         yield StreamMeta(
             conversation_id=conversation.id,
@@ -184,6 +217,16 @@ class ChatService:
             yield StreamToken(content=refusal)
             conversation.add_message(Message(role=Role.ASSISTANT, content=refusal))
             await self._repository.save(conversation)
+            self._record_chat_trace(
+                user_query=content,
+                retrieved=retrieved,
+                model_response=refusal,
+                conversation_id=conversation.id,
+                duration_ms=0,
+                retrieval_duration_ms=retrieval_duration_ms,
+                mode="stream",
+                retrieval_backend=retrieval_backend,
+            )
             yield StreamDone(conversation_id=conversation.id)
             return
 
@@ -199,10 +242,20 @@ class ChatService:
         )
 
         parts: list[str] = []
+        input_tokens: int | None = None
+        output_tokens: int | None = None
+        provider_duration_ms: int | None = None
+        started = time.perf_counter()
         async for delta in self._llm.generate_stream(
             llm_messages,
             system_prompt=system_prompt,
         ):
+            if delta.input_tokens is not None:
+                input_tokens = delta.input_tokens
+            if delta.output_tokens is not None:
+                output_tokens = delta.output_tokens
+            if delta.duration_ms is not None:
+                provider_duration_ms = delta.duration_ms
             if not delta.text:
                 continue
             if delta.kind == "thinking":
@@ -211,6 +264,11 @@ class ChatService:
             parts.append(delta.text)
             yield StreamToken(content=delta.text)
 
+        duration_ms = (
+            provider_duration_ms
+            if provider_duration_ms is not None
+            else int((time.perf_counter() - started) * 1000)
+        )
         full_text = "".join(parts).strip()
         if not full_text:
             raise ValidationError("El modelo devolvió una respuesta vacía")
@@ -220,6 +278,18 @@ class ChatService:
 
         conversation.add_message(Message(role=Role.ASSISTANT, content=full_text))
         await self._repository.save(conversation)
+        self._record_chat_trace(
+            user_query=content,
+            retrieved=retrieved,
+            model_response=full_text,
+            conversation_id=conversation.id,
+            duration_ms=duration_ms,
+            retrieval_duration_ms=retrieval_duration_ms,
+            mode="stream",
+            retrieval_backend=retrieval_backend,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
         yield StreamDone(conversation_id=conversation.id)
 
     async def get_conversation(self, conversation_id: str) -> Conversation:
@@ -265,6 +335,17 @@ class ChatService:
                 top_k=self._rag_top_k,
             )
         return await self._vector_store.search(vectors[0], top_k=self._rag_top_k)
+
+    async def _retrieve_timed(
+        self,
+        query: str,
+        *,
+        retrieval_backend: str | None = None,
+    ) -> tuple[list[RetrievedChunk], int]:
+        started = time.perf_counter()
+        retrieved = await self._retrieve(query, retrieval_backend=retrieval_backend)
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        return retrieved, duration_ms
 
     async def _build_llm_payload(
         self,
@@ -360,3 +441,38 @@ class ChatService:
                 }
             )
         return tuple(sources)
+
+    def _record_chat_trace(
+        self,
+        *,
+        user_query: str,
+        retrieved: list[RetrievedChunk],
+        model_response: str,
+        conversation_id: str,
+        duration_ms: int,
+        retrieval_duration_ms: int,
+        mode: Literal["stream", "sync"],
+        retrieval_backend: str | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+    ) -> None:
+        if self._tracer is None:
+            return
+        chunk_ids = tuple(item.chunk.id for item in retrieved)
+        chunk_scores = tuple(item.score for item in retrieved)
+        self._tracer.record_chat_generation(
+            ChatGenerationTrace(
+                user_query=user_query,
+                chunk_ids=chunk_ids,
+                chunk_scores=chunk_scores,
+                model_response=model_response,
+                model=self._llm.model_name,
+                conversation_id=conversation_id,
+                duration_ms=duration_ms,
+                retrieval_duration_ms=retrieval_duration_ms,
+                mode=mode,
+                retrieval_backend=retrieval_backend,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            )
+        )

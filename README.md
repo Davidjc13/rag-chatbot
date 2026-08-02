@@ -157,6 +157,18 @@ Salida en `evals/results/bioasq/retrieval_metrics.json`.
 
 ## Docker Compose
 
+Ollama usa **GPU por defecto** (`gpus: all`). Si Docker falla con:
+
+`failed to discover GPU vendor from CDI: no known GPU vendor found`
+
+la GPU del host funciona (`nvidia-smi`), pero falta el **NVIDIA Container Toolkit** en el daemon de Docker. Instálalo una vez:
+
+```bash
+make setup-gpu
+```
+
+Luego levanta el stack:
+
 ```bash
 make up-docker
 # o: docker compose --profile docker up --build

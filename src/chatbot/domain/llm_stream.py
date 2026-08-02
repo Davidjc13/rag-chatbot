@@ -12,3 +12,6 @@ LLMDeltaKind = Literal["content", "thinking"]
 class LLMDelta:
     text: str
     kind: LLMDeltaKind = "content"
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    duration_ms: int | None = None

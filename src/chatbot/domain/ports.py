@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
-from typing import Protocol
+from dataclasses import dataclass
+from typing import Literal, Protocol
 
 from chatbot.domain.documents import (
     DocumentChunk,
@@ -14,6 +15,32 @@ from chatbot.domain.documents import (
 )
 from chatbot.domain.entities import Conversation, Message
 from chatbot.domain.llm_stream import LLMDelta
+
+
+@dataclass(frozen=True, slots=True)
+class ChatGenerationTrace:
+    """Datos de una petición RAG completada para observabilidad."""
+
+    user_query: str
+    chunk_ids: tuple[str, ...]
+    chunk_scores: tuple[float, ...]
+    model_response: str
+    model: str
+    conversation_id: str
+    duration_ms: int
+    retrieval_duration_ms: int
+    mode: Literal["stream", "sync"] = "stream"
+    retrieval_backend: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+
+
+class TracingPort(ABC):
+    """Puerto de salida para registrar trazas de generación."""
+
+    @abstractmethod
+    def record_chat_generation(self, trace: ChatGenerationTrace) -> None:
+        """Registra una generación completada (p. ej. tras cerrar el SSE)."""
 
 
 class LLMPort(ABC):

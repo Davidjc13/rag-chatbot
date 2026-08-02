@@ -14,6 +14,7 @@ IMAGE     ?= rag-chatbot:0.1.0
 KIND_CLUSTER ?= rag-chatbot
 PROFILE_DB     := --profile db
 PROFILE_DOCKER := --profile docker
+PROFILE_LANGFUSE := --profile langfuse
 
 .PHONY: help
 help: ## Muestra esta ayuda
@@ -54,7 +55,7 @@ up: env db ## Levanta Postgres + Neo4j (Docker) + app local
 	$(UV) run uvicorn chatbot.main:app --reload --host $(HOST) --port $(PORT)
 
 .PHONY: up-docker
-up-docker: env ## Stack completo en Docker (postgres + ollama + app)
+up-docker: env ## Stack completo en Docker (postgres + ollama GPU + app)
 	$(COMPOSE) $(PROFILE_DOCKER) up --build -d
 	@echo "App en http://localhost:$(PORT)/"
 	@$(COMPOSE) $(PROFILE_DOCKER) ps
@@ -73,7 +74,7 @@ db: ## Solo bases de datos en Docker (Postgres + Neo4j)
 	done
 	@$(COMPOSE) $(PROFILE_DB) exec -T postgres \
 		psql -U chatbot -d chatbot -c 'CREATE EXTENSION IF NOT EXISTS vector;' >/dev/null
-	@echo "Postgres listo en localhost:5432"
+	@echo "Postgres listo en localhost:5433"
 	@echo "Esperando a Neo4j…"
 	@for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do \
 		$(COMPOSE) $(PROFILE_DB) exec -T neo4j \
@@ -205,6 +206,42 @@ k8s-cluster-delete: ## Elimina el cluster kind local
 	-$(KIND) delete cluster --name "$(KIND_CLUSTER)"
 
 # ── Calidad ─────────────────────────────────────────────────────────────────
+
+.PHONY: langfuse-up
+langfuse-up: env ## Levanta Langfuse (UI en http://localhost:3300)
+	$(COMPOSE) $(PROFILE_LANGFUSE) up -d --force-recreate langfuse-web langfuse-worker langfuse-proxy
+	@echo "Langfuse UI: http://localhost:3300/"
+	@echo "Usuario inicial: admin@example.com / adminadmin"
+	@echo "API keys dev: pk-lf-rag-dev / sk-lf-rag-dev"
+
+.PHONY: langfuse-down
+langfuse-down: ## Para el stack Langfuse
+	$(COMPOSE) $(PROFILE_LANGFUSE) down
+
+.PHONY: langfuse-logs
+langfuse-logs: ## Logs de Langfuse (follow)
+	$(COMPOSE) $(PROFILE_LANGFUSE) logs -f --tail=100 langfuse-web langfuse-worker
+
+.PHONY: up-docker-langfuse
+up-docker-langfuse: env ## Stack app + Langfuse en Docker (Ollama GPU)
+	$(COMPOSE) $(PROFILE_DOCKER) $(PROFILE_LANGFUSE) up --build -d
+	@echo "App:  http://localhost:$${PORT:-8000}/"
+	@echo "Langfuse: http://localhost:3300/"
+
+.PHONY: setup-gpu
+setup-gpu: ## Instala NVIDIA Container Toolkit (requerido para Ollama en Docker)
+	@echo "Instalando NVIDIA Container Toolkit para Docker GPU..."
+	@curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+	@curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+		sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+		sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+	@sudo apt-get update
+	@sudo apt-get install -y nvidia-container-toolkit
+	@sudo nvidia-ctk runtime configure --runtime=docker
+	@sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+	@sudo systemctl restart docker
+	@echo "Verificando GPU en Docker..."
+	@docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi
 
 .PHONY: test
 test: ## Ejecuta pytest

@@ -250,6 +250,22 @@ class Env:  # pylint: disable=too-many-public-methods
         return self.get_float("HTTP_TIMEOUT_SECONDS", 120.0)
 
     @property
+    def langfuse_enabled(self) -> bool:
+        return self.get_bool("LANGFUSE_ENABLED", False)
+
+    @property
+    def langfuse_public_key(self) -> str | None:
+        return self.get("LANGFUSE_PUBLIC_KEY")
+
+    @property
+    def langfuse_secret_key(self) -> str | None:
+        return self.get("LANGFUSE_SECRET_KEY")
+
+    @property
+    def langfuse_host(self) -> str:
+        return self.get("LANGFUSE_HOST", "http://localhost:3000") or "http://localhost:3000"
+
+    @property
     def active_model(self) -> str:
         if self.llm_provider == "litellm":
             return self.litellm_model

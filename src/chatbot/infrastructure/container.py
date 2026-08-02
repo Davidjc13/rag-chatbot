@@ -21,6 +21,7 @@ from chatbot.domain.ports import (
     GuardrailPort,
     LLMPort,
     PromptRepositoryPort,
+    TracingPort,
     VectorStorePort,
 )
 from chatbot.domain.retrieval import RETRIEVAL_BACKEND_POSTGRES
@@ -53,6 +54,8 @@ from chatbot.infrastructure.adapters.persistence.postgres.vector_store import (
 from chatbot.infrastructure.adapters.persistence.routed_vector_store import (
     RoutedVectorStore,
 )
+from chatbot.infrastructure.adapters.observability.langfuse_tracer import LangfuseTracer
+from chatbot.infrastructure.adapters.observability.noop_tracer import NoOpTracer
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +126,7 @@ class AppContainer:  # pylint: disable=too-many-instance-attributes
         self.guardrails: GuardrailPort = RuleBasedGuardrail(
             min_score=self.env.rag_min_score,
         )
+        self.tracer: TracingPort = self._build_tracer()
         self.chat_service = ChatService(
             llm=self.llm,
             repository=self.repository,
@@ -130,6 +134,7 @@ class AppContainer:  # pylint: disable=too-many-instance-attributes
             embeddings=self.embeddings,
             vector_store=self.vector_store,
             guardrails=self.guardrails,
+            tracer=self.tracer,
             rag_top_k=self.env.rag_top_k,
         )
         # Compat: rutas health leen settings.llm_provider
@@ -143,7 +148,25 @@ class AppContainer:  # pylint: disable=too-many-instance-attributes
                 "embedding_api_base": embedding_api_base,
                 "vector_backend": self.env.vector_backend,
                 "neo4j_enabled": self.env.neo4j_enabled,
+                "langfuse_enabled": self.env.langfuse_enabled,
             },
+        )
+
+    def _build_tracer(self) -> TracingPort:
+        env = self.env
+        if not env.langfuse_enabled:
+            return NoOpTracer()
+        public_key = env.langfuse_public_key
+        secret_key = env.langfuse_secret_key
+        if not public_key or not secret_key:
+            logger.warning(
+                "LANGFUSE_ENABLED=true pero faltan LANGFUSE_PUBLIC_KEY o LANGFUSE_SECRET_KEY"
+            )
+            return NoOpTracer()
+        return LangfuseTracer(
+            public_key=public_key,
+            secret_key=secret_key,
+            host=env.langfuse_host,
         )
 
     async def startup(self) -> None:
