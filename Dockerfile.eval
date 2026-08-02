@@ -23,7 +23,7 @@ FROM python:3.12-slim-bookworm AS runtime
 
 WORKDIR /app
 
-RUN mkdir -p /app/evals/results /app/evals/data/hf-cache
+RUN mkdir -p /app/evals/results /app/evals/data/hf-cache /app/evals/data/deepeval-cache
 
 COPY --from=builder /app /app
 
@@ -34,7 +34,10 @@ ENV PATH="/app/.venv/bin:$PATH" \
     APP_ENV=evaluation \
     LOG_JSON=false \
     HF_HOME=/app/evals/data/hf-cache \
-    OLLAMA_THINK=false
+    OLLAMA_THINK=false \
+    DEEPEVAL_CACHE_FOLDER=/app/evals/data/deepeval-cache \
+    DEEPEVAL_TELEMETRY_OPT_OUT=YES \
+    DEEPEVAL_DISABLE_DOTENV=1
 
 # Se ejecuta como root para poder escribir en bind mounts del host
 # (evals/results). Es un job one-shot, no un servicio expuesto.

@@ -22,6 +22,9 @@ RUN groupadd --system app && useradd --system --gid app --create-home app
 
 COPY --from=builder /app /app
 
+RUN mkdir -p /app/evals/results/runs /home/app/.cache/deepeval \
+    && chown -R app:app /app/evals /home/app/.cache
+
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH=/app \
     PYTHONUNBUFFERED=1 \
@@ -29,7 +32,10 @@ ENV PATH="/app/.venv/bin:$PATH" \
     APP_ENV=production \
     LOG_JSON=true \
     HOST=0.0.0.0 \
-    PORT=8000
+    PORT=8000 \
+    DEEPEVAL_CACHE_FOLDER=/home/app/.cache/deepeval \
+    DEEPEVAL_TELEMETRY_OPT_OUT=YES \
+    DEEPEVAL_DISABLE_DOTENV=1
 
 USER app
 

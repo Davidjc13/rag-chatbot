@@ -46,6 +46,23 @@ export async function importBioasqDataset(force = false) {
   });
 }
 
+export async function listEvalDatasets() {
+  return apiJson("/evals/datasets");
+}
+
+export async function importJsonDataset(file, { datasetId = null, force = false } = {}) {
+  const body = new FormData();
+  body.append("file", file, file.name);
+  const params = new URLSearchParams();
+  if (datasetId) params.set("dataset_id", datasetId);
+  if (force) params.set("force", "true");
+  const query = params.toString();
+  return apiJson(`/evals/datasets/json/import${query ? `?${query}` : ""}`, {
+    method: "POST",
+    body,
+  });
+}
+
 export async function listEvalSuites() {
   return apiJson("/evals/suites");
 }
@@ -80,9 +97,32 @@ export async function getEvalRun(runId) {
   return apiJson(`/evals/runs/${encodeURIComponent(runId)}`);
 }
 
+export async function deleteEvalRun(runId) {
+  return apiJson(`/evals/runs/${encodeURIComponent(runId)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function clearEvalRuns() {
+  return apiJson("/evals/runs", { method: "DELETE" });
+}
+
 export async function getEvalRunSamples(runId, { offset = 0, limit = 50 } = {}) {
   const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
   return apiJson(`/evals/runs/${encodeURIComponent(runId)}/samples?${params}`);
+}
+
+export async function startAbTest(payload) {
+  return apiJson("/evals/ab-test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function compareEvalRuns(runA, runB) {
+  const params = new URLSearchParams({ run_a: runA, run_b: runB });
+  return apiJson(`/evals/compare?${params}`);
 }
 
 export async function getConversation(conversationId) {

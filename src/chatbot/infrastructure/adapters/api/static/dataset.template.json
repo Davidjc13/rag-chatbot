@@ -1,0 +1,32 @@
+{
+  "name": "Mi dataset de evaluación",
+  "description": "Dataset personalizado para evaluar retrieval y respuestas del agente RAG.",
+  "passages": [
+    {
+      "id": "doc-1",
+      "text": "La metformina es un fármaco antidiabético oral de la clase biguanida. Reduce la glucemia hepática y mejora la sensibilidad a la insulina."
+    },
+    {
+      "id": "doc-2",
+      "text": "El ibuprofeno es un antiinflamatorio no esteroideo (AINE) usado para dolor leve a moderado y fiebre."
+    },
+    {
+      "id": "doc-3",
+      "text": "La warfarina es un anticoagulante oral que inhibe la síntesis de factores de coagulación dependientes de vitamina K."
+    }
+  ],
+  "samples": [
+    {
+      "id": "q1",
+      "question": "¿Qué tipo de fármaco es la metformina?",
+      "answer": "Es un antidiabético oral de la clase biguanida.",
+      "relevant_passage_ids": ["doc-1"]
+    },
+    {
+      "id": "q2",
+      "question": "¿Para qué se usa el ibuprofeno?",
+      "answer": "Para dolor leve a moderado y fiebre.",
+      "relevant_passage_ids": ["doc-2"]
+    }
+  ]
+}

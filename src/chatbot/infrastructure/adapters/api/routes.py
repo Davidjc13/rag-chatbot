@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from chatbot.application.services.chat_service import (
     ChatService,
@@ -27,7 +28,14 @@ from chatbot.infrastructure.adapters.api.schemas import (
     ConversationResponse,
     DocumentListResponse,
     DocumentSummaryResponse,
+    EvalABTestRequest,
+    EvalComparisonResponse,
+    EvalComparisonSampleResponse,
+    EvalClearResponse,
+    EvalDatasetListResponse,
     EvalDatasetStatusResponse,
+    EvalExperimentListResponse,
+    EvalExperimentResponse,
     EvalImportRequest,
     EvalRunListResponse,
     EvalRunResponse,
@@ -43,7 +51,10 @@ from chatbot.infrastructure.adapters.api.schemas import (
     IngestionResponse,
     MessageResponse,
 )
-from evals.domain import EvalRunSummary, EvalSuite, EvalSuiteConfig
+from evals.domain import EvalComparisonResult, EvalExperiment, EvalRunSummary, EvalSuite, EvalSuiteConfig
+from evals.json_dataset import dataset_template_path
+
+_EVAL_STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 router = APIRouter()
 
@@ -222,6 +233,11 @@ def _suite_config_from_request(payload: EvalSuiteConfigRequest) -> EvalSuiteConf
         generate=payload.generate,
         ragas=payload.ragas,
         ragas_timeout=payload.ragas_timeout,
+        deepeval=payload.deepeval,
+        deepeval_timeout=payload.deepeval_timeout,
+        deepeval_metrics=tuple(payload.deepeval_metrics),
+        llm_model=payload.llm_model,
+        llm_provider=payload.llm_provider,
     )
 
 
@@ -234,6 +250,11 @@ def _suite_config_to_response(config: EvalSuiteConfig) -> EvalSuiteConfigRequest
         generate=config.generate,
         ragas=config.ragas,
         ragas_timeout=config.ragas_timeout,
+        deepeval=config.deepeval,
+        deepeval_timeout=config.deepeval_timeout,
+        deepeval_metrics=list(config.deepeval_metrics),
+        llm_model=config.llm_model,
+        llm_provider=config.llm_provider,  # type: ignore[arg-type]
     )
 
 
@@ -260,9 +281,122 @@ def _run_to_response(run: EvalRunSummary) -> EvalRunResponse:
         config=run.config,
         retrieval_metrics=run.retrieval_metrics,
         ragas_metrics=run.ragas_metrics,
+        deepeval_metrics=run.deepeval_metrics,
+        experiment_id=run.experiment_id,
+        variant_label=run.variant_label,
         error=run.error,
         started_at=run.started_at,
         finished_at=run.finished_at,
+    )
+
+
+def _experiment_to_response(item: EvalExperiment) -> EvalExperimentResponse:
+    return EvalExperimentResponse(
+        id=item.id,
+        name=item.name,
+        suite_id=item.suite_id,
+        dataset_id=item.dataset_id,
+        run_a_id=item.run_a_id,
+        run_b_id=item.run_b_id,
+        created_at=item.created_at,
+    )
+
+
+def _comparison_to_response(item: EvalComparisonResult) -> EvalComparisonResponse:
+    return EvalComparisonResponse(
+        run_a_id=item.run_a_id,
+        run_b_id=item.run_b_id,
+        run_a_name=item.run_a_name,
+        run_b_name=item.run_b_name,
+        retrieval_delta=item.retrieval_delta,
+        ragas_delta=item.ragas_delta,
+        deepeval_delta=item.deepeval_delta,
+        win_rates=item.win_rates,
+        samples=[
+            EvalComparisonSampleResponse(
+                sample_id=sample.sample_id,
+                question=sample.question,
+                ground_truth=sample.ground_truth,
+                answer_a=sample.answer_a,
+                answer_b=sample.answer_b,
+                retrieved_a=list(sample.retrieved_a),
+                retrieved_b=list(sample.retrieved_b),
+                hit_a=sample.hit_a,
+                hit_b=sample.hit_b,
+            )
+            for sample in item.samples
+        ],
+    )
+
+
+@router.get(
+    "/evals/datasets",
+    response_model=EvalDatasetListResponse,
+    tags=["evals"],
+)
+async def list_eval_datasets(request: Request) -> EvalDatasetListResponse:
+    service = _eval_service(request)
+    datasets = await service.list_datasets()
+    return EvalDatasetListResponse(
+        datasets=[
+            EvalDatasetStatusResponse(
+                dataset_id=item.dataset_id,
+                name=item.name,
+                hf_source=item.hf_source,
+                passage_count=item.passage_count,
+                qa_count=item.qa_count,
+                imported_at=item.imported_at,
+                import_stats=item.import_stats,
+            )
+            for item in datasets
+        ]
+    )
+
+
+@router.get("/evals/datasets/template", tags=["evals"])
+async def download_dataset_template() -> FileResponse:
+    static_path = _EVAL_STATIC_DIR / "dataset.template.json"
+    path = static_path if static_path.is_file() else dataset_template_path()
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Plantilla no encontrada")
+    return FileResponse(path, filename="dataset.template.json", media_type="application/json")
+
+
+@router.post(
+    "/evals/datasets/json/import",
+    response_model=EvalDatasetStatusResponse,
+    tags=["evals"],
+)
+async def import_json_dataset(
+    request: Request,
+    file: UploadFile = File(...),
+    dataset_id: str | None = None,
+    force: bool = False,
+) -> EvalDatasetStatusResponse:
+    service = _eval_service(request)
+    raw = await file.read()
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="JSON inválido") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="El dataset debe ser un objeto JSON")
+    try:
+        status = await service.import_json_dataset(
+            payload,
+            dataset_id=dataset_id,
+            force=force,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return EvalDatasetStatusResponse(
+        dataset_id=status.dataset_id,
+        name=status.name,
+        hf_source=status.hf_source,
+        passage_count=status.passage_count,
+        qa_count=status.qa_count,
+        imported_at=status.imported_at,
+        import_stats=status.import_stats,
     )
 
 
@@ -327,6 +461,7 @@ async def create_eval_suite(
         description=payload.description,
         config=_suite_config_from_request(payload.config),
         sample_ids=payload.sample_ids,
+        dataset_id=payload.dataset_id,
     )
     return _suite_to_response(suite)
 
@@ -402,6 +537,24 @@ async def get_eval_run(run_id: str, request: Request) -> EvalRunResponse:
     return _run_to_response(run)
 
 
+@router.delete("/evals/runs/{run_id}", status_code=204, tags=["evals"])
+async def delete_eval_run(run_id: str, request: Request) -> None:
+    service = _eval_service(request)
+    deleted = await service.delete_run(run_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Run no encontrado")
+
+
+@router.delete("/evals/runs", response_model=EvalClearResponse, tags=["evals"])
+async def clear_eval_runs(request: Request) -> EvalClearResponse:
+    service = _eval_service(request)
+    runs_deleted, experiments_deleted = await service.clear_runs_and_experiments()
+    return EvalClearResponse(
+        runs_deleted=runs_deleted,
+        experiments_deleted=experiments_deleted,
+    )
+
+
 @router.get(
     "/evals/runs/{run_id}/samples",
     response_model=EvalRunSamplesResponse,
@@ -435,3 +588,51 @@ async def get_eval_run_samples(
         offset=offset,
         limit=limit,
     )
+
+
+@router.post("/evals/ab-test", response_model=EvalExperimentResponse, tags=["evals"])
+async def start_ab_test(payload: EvalABTestRequest, request: Request) -> EvalExperimentResponse:
+    service = _eval_service(request)
+    try:
+        experiment = await service.start_ab_test(
+            suite_id=payload.suite_id,
+            name=payload.name,
+            variant_a_name=payload.variant_a.name,
+            variant_b_name=payload.variant_b.name,
+            variant_a_config=(
+                _suite_config_from_request(payload.variant_a.config)
+                if payload.variant_a.config
+                else None
+            ),
+            variant_b_config=(
+                _suite_config_from_request(payload.variant_b.config)
+                if payload.variant_b.config
+                else None
+            ),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _experiment_to_response(experiment)
+
+
+@router.get("/evals/experiments", response_model=EvalExperimentListResponse, tags=["evals"])
+async def list_eval_experiments(request: Request) -> EvalExperimentListResponse:
+    service = _eval_service(request)
+    experiments = await service.list_experiments()
+    return EvalExperimentListResponse(
+        experiments=[_experiment_to_response(item) for item in experiments]
+    )
+
+
+@router.get("/evals/compare", response_model=EvalComparisonResponse, tags=["evals"])
+async def compare_eval_runs(
+    request: Request,
+    run_a: str,
+    run_b: str,
+) -> EvalComparisonResponse:
+    service = _eval_service(request)
+    try:
+        result = await service.compare_runs(run_a, run_b)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return _comparison_to_response(result)

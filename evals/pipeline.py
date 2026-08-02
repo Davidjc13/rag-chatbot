@@ -30,6 +30,35 @@ def _embedding_api_base(env: Env) -> str | None:
     return env.litellm_api_base
 
 
+def _create_eval_llm(
+    env: Env,
+    *,
+    llm_model: str | None = None,
+    llm_provider: str | None = None,
+) -> LLMPort:
+    """Crea LLM para evaluación, con overrides opcionales (A/B testing)."""
+    provider = llm_provider or env.llm_provider
+    model = llm_model or env.active_model
+    if provider == "litellm":
+        return LLMFactory.create_from_name(
+            "litellm",
+            model=model if model.startswith("ollama/") else model,
+            api_base=env.litellm_api_base,
+            api_key=env.litellm_api_key,
+            timeout_seconds=env.litellm_timeout_seconds,
+            temperature=0.0,
+        )
+    if provider == "ollama":
+        return LLMFactory.create_from_name(
+            "ollama",
+            model=model,
+            base_url=env.ollama_base_url,
+            timeout_seconds=env.ollama_timeout_seconds,
+            temperature=0.0,
+        )
+    return LLMFactory.create(env)
+
+
 @dataclass(frozen=True, slots=True)
 class RagSampleResult:
     sample_id: int
@@ -66,9 +95,17 @@ class BioASQRagPipeline:
         *,
         top_k: int | None = None,
         with_llm: bool = False,
+        llm_model: str | None = None,
+        llm_provider: str | None = None,
     ) -> BioASQRagPipeline:
         settings = env or Env.get_instance()
-        llm = LLMFactory.create(settings) if with_llm else None
+        llm = None
+        if with_llm:
+            llm = _create_eval_llm(
+                settings,
+                llm_model=llm_model,
+                llm_provider=llm_provider,
+            )
         embeddings = LiteLLMEmbeddingAdapter(
             model=settings.litellm_embedding_model,
             api_base=_embedding_api_base(settings),

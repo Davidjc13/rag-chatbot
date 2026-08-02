@@ -173,12 +173,34 @@ class EvalRunModel(Base):
     config: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     retrieval_metrics: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     ragas_metrics: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    deepeval_metrics: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    experiment_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    variant_label: Mapped[str | None] = mapped_column(String(8), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
     )
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class EvalExperimentModel(Base):
+    __tablename__ = "eval_experiments"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    suite_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("eval_suites.id", ondelete="CASCADE"),
+        index=True,
+    )
+    dataset_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    run_a_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    run_b_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+    )
 
 
 class EvalRunResultModel(Base):

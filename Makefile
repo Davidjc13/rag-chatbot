@@ -233,6 +233,31 @@ eval-bioasq-local: ## Igual que eval-bioasq pero en el host (sin Docker)
 		--output-dir evals/results/bioasq \
 		$(EVAL_ARGS)
 
+.PHONY: eval-deepeval-template
+eval-deepeval-template: eval-sync ## Smoke test DeepEval con plantilla JSON (2 QA; Ollama en host)
+	@mkdir -p evals/results/template
+	$(UV) run python -m evals \
+		--template \
+		--limit 2 \
+		--distractors 0 \
+		--generate \
+		--deepeval \
+		--output-dir evals/results/template
+	@echo "Resultados en evals/results/template/"
+
+.PHONY: eval-deepeval-template-docker
+eval-deepeval-template-docker: ## Igual en Docker (perfil eval + Ollama)
+	@mkdir -p evals/results/template
+	$(COMPOSE) --profile eval build eval-bioasq
+	$(COMPOSE) --profile eval run --rm eval-bioasq \
+		--template \
+		--limit 2 \
+		--distractors 0 \
+		--generate \
+		--deepeval \
+		--output-dir evals/results/template
+	@echo "Resultados en evals/results/template/"
+
 .PHONY: lint
 lint: ## Pylint sobre el paquete
 	$(UV) run pylint src/chatbot

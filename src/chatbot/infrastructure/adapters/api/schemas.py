@@ -72,6 +72,13 @@ class EvalSuiteConfigRequest(BaseModel):
     generate: bool = False
     ragas: bool = False
     ragas_timeout: int = Field(default=600, ge=60, le=3600)
+    deepeval: bool = False
+    deepeval_timeout: int = Field(default=600, ge=60, le=3600)
+    deepeval_metrics: list[str] = Field(
+        default_factory=lambda: ["answer_relevancy", "faithfulness", "contextual_relevancy"]
+    )
+    llm_model: str | None = None
+    llm_provider: Literal["litellm", "ollama", "mock"] | None = None
 
 
 class EvalDatasetStatusResponse(BaseModel):
@@ -88,9 +95,19 @@ class EvalImportRequest(BaseModel):
     force: bool = False
 
 
+class EvalJsonImportRequest(BaseModel):
+    dataset_id: str | None = Field(default=None, max_length=63)
+    force: bool = False
+
+
+class EvalDatasetListResponse(BaseModel):
+    datasets: list[EvalDatasetStatusResponse]
+
+
 class EvalSuiteCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=256)
     description: str | None = None
+    dataset_id: str = Field(default="bioasq", min_length=1, max_length=64)
     config: EvalSuiteConfigRequest = Field(default_factory=EvalSuiteConfigRequest)
     sample_ids: list[int] | None = None
 
@@ -133,6 +150,9 @@ class EvalRunResponse(BaseModel):
     config: dict[str, object]
     retrieval_metrics: dict[str, object] | None
     ragas_metrics: dict[str, object] | None
+    deepeval_metrics: dict[str, object] | None
+    experiment_id: str | None = None
+    variant_label: str | None = None
     error: str | None
     started_at: datetime
     finished_at: datetime | None
@@ -157,3 +177,58 @@ class EvalRunSamplesResponse(BaseModel):
     total: int
     offset: int
     limit: int
+
+
+class EvalABVariantRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=256)
+    config: EvalSuiteConfigRequest | None = None
+
+
+class EvalABTestRequest(BaseModel):
+    suite_id: str
+    name: str | None = None
+    variant_a: EvalABVariantRequest
+    variant_b: EvalABVariantRequest
+
+
+class EvalExperimentResponse(BaseModel):
+    id: str
+    name: str
+    suite_id: str
+    dataset_id: str
+    run_a_id: str
+    run_b_id: str
+    created_at: datetime
+
+
+class EvalExperimentListResponse(BaseModel):
+    experiments: list[EvalExperimentResponse]
+
+
+class EvalClearResponse(BaseModel):
+    runs_deleted: int
+    experiments_deleted: int
+
+
+class EvalComparisonSampleResponse(BaseModel):
+    sample_id: int
+    question: str
+    ground_truth: str
+    answer_a: str
+    answer_b: str
+    retrieved_a: list[int]
+    retrieved_b: list[int]
+    hit_a: bool
+    hit_b: bool
+
+
+class EvalComparisonResponse(BaseModel):
+    run_a_id: str
+    run_b_id: str
+    run_a_name: str | None
+    run_b_name: str | None
+    retrieval_delta: dict[str, float | None]
+    ragas_delta: dict[str, float | None]
+    deepeval_delta: dict[str, float | None]
+    win_rates: dict[str, float | None]
+    samples: list[EvalComparisonSampleResponse]

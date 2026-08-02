@@ -10,7 +10,7 @@ __pycache__/
 .Python
 build/
 ragbench/
-evals/data/
+evals/data/hf-cache/
 evals/results/
 develop-eggs/
 dist/

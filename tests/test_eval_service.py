@@ -52,6 +52,15 @@ async def test_eval_service_start_run_validates_ragas() -> None:
 
 
 @pytest.mark.asyncio
+async def test_eval_service_start_run_validates_deepeval() -> None:
+    repo = AsyncMock()
+    service = EvalService(repository=repo)
+
+    with pytest.raises(ValueError, match="deepeval requiere generate"):
+        await service.start_run(config=EvalSuiteConfig(deepeval=True, generate=False))
+
+
+@pytest.mark.asyncio
 async def test_eval_service_build_passage_index() -> None:
     repo = AsyncMock()
     service = EvalService(repository=repo)

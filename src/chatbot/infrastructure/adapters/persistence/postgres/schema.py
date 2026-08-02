@@ -55,6 +55,38 @@ async def init_schema(
         await conn.execute(
             text(
                 """
+                ALTER TABLE eval_runs
+                ADD COLUMN IF NOT EXISTS deepeval_metrics JSONB
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE eval_runs
+                ADD COLUMN IF NOT EXISTS experiment_id VARCHAR(36)
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE eval_runs
+                ADD COLUMN IF NOT EXISTS variant_label VARCHAR(8)
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS eval_runs_experiment_id_idx
+                ON eval_runs (experiment_id)
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
                 CREATE INDEX IF NOT EXISTS chunks_embedding_hnsw_idx
                 ON chunks
                 USING hnsw (embedding vector_cosine_ops)

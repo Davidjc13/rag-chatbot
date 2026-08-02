@@ -83,6 +83,10 @@ services:
       NEO4J_DATABASE: neo4j
       NEO4J_VECTOR_INDEX: chunk_embeddings
       NEO4J_EMBEDDING_DIMENSION: "768"
+      DEEPEVAL_CACHE_FOLDER: /home/app/.cache/deepeval
+      DEEPEVAL_TELEMETRY_OPT_OUT: "YES"
+      DEEPEVAL_DISABLE_DOTENV: "1"
+      DEEPEVAL_PER_TASK_TIMEOUT_SECONDS_OVERRIDE: ${DEEPEVAL_PER_TASK_TIMEOUT_SECONDS_OVERRIDE:-600}
     depends_on:
       postgres:
         condition: service_healthy
@@ -180,6 +184,9 @@ services:
       CHUNK_SIZE: ${CHUNK_SIZE:-800}
       CHUNK_OVERLAP: ${CHUNK_OVERLAP:-100}
       HF_HOME: /app/evals/data/hf-cache
+      DEEPEVAL_CACHE_FOLDER: /app/evals/data/deepeval-cache
+      DEEPEVAL_TELEMETRY_OPT_OUT: "YES"
+      DEEPEVAL_DISABLE_DOTENV: "1"
       # No necesita Postgres/Neo4j (índice en memoria)
       NEO4J_ENABLED: "false"
     volumes:

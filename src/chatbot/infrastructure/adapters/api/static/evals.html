@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Evaluaciones RAGAS — RAG Chatbot</title>
+    <title>Evaluaciones — RAG Chatbot</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -26,13 +26,37 @@
       <main class="evals-layout">
         <section class="panel evals-section" aria-labelledby="dataset-heading">
           <div class="docs-toolbar">
-            <h2 id="dataset-heading">Dataset BioASQ</h2>
+            <h2 id="dataset-heading">Datasets</h2>
             <div class="button-row">
-              <button type="button" id="import-btn">Importar a Postgres</button>
-              <button type="button" id="reimport-btn" class="secondary">Reimportar</button>
+              <button type="button" id="import-btn">Importar BioASQ</button>
+              <button type="button" id="reimport-btn" class="secondary">Reimportar BioASQ</button>
+              <a id="template-link" class="button-link secondary" href="/static/dataset.template.json" download="dataset.template.json">Plantilla JSON</a>
             </div>
           </div>
-          <p id="dataset-status" class="status-line" role="status">Comprobando dataset…</p>
+          <p id="dataset-status" class="status-line" role="status">Comprobando datasets…</p>
+          <div class="json-import-row">
+            <label class="field field-inline">
+              <span>Importar JSON</span>
+              <input id="json-file" type="file" accept="application/json,.json" />
+            </label>
+            <label class="field field-inline">
+              <span>ID dataset (opcional)</span>
+              <input id="json-dataset-id" type="text" placeholder="mi-dataset" maxlength="63" />
+            </label>
+            <button type="button" id="json-import-btn">Subir JSON</button>
+          </div>
+          <table class="doc-table" aria-label="Datasets importados">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Nombre</th>
+                <th>Origen</th>
+                <th>Pasajes</th>
+                <th>QA</th>
+              </tr>
+            </thead>
+            <tbody id="datasets-body"></tbody>
+          </table>
         </section>
 
         <section class="panel evals-section" aria-labelledby="suites-heading">
@@ -45,6 +69,7 @@
             <thead>
               <tr>
                 <th>Nombre</th>
+                <th>Dataset</th>
                 <th>Muestras</th>
                 <th>Modo</th>
                 <th>Creada</th>
@@ -55,10 +80,34 @@
           </table>
         </section>
 
+        <section class="panel evals-section" aria-labelledby="ab-heading">
+          <div class="docs-toolbar">
+            <h2 id="ab-heading">A/B testing</h2>
+            <button type="button" id="open-ab-btn" class="secondary">Nuevo experimento</button>
+          </div>
+          <p id="ab-status" class="status-line" role="status"></p>
+          <div class="ab-compare-row">
+            <label class="field field-inline">
+              <span>Run A</span>
+              <select id="compare-run-a"></select>
+            </label>
+            <label class="field field-inline">
+              <span>Run B</span>
+              <select id="compare-run-b"></select>
+            </label>
+            <button type="button" id="compare-btn">Comparar</button>
+            <button type="button" id="clear-experiments-btn" class="danger">Limpiar historial</button>
+          </div>
+          <div id="compare-results" class="compare-results" hidden></div>
+        </section>
+
         <section class="panel evals-section" aria-labelledby="runs-heading">
           <div class="docs-toolbar">
             <h2 id="runs-heading">Ejecuciones</h2>
-            <button type="button" id="refresh-runs-btn" class="secondary compact">Actualizar</button>
+            <div class="button-row">
+              <button type="button" id="refresh-runs-btn" class="secondary compact">Actualizar</button>
+              <button type="button" id="clear-runs-btn" class="danger compact">Limpiar todo</button>
+            </div>
           </div>
           <p id="run-status" class="status-line" role="status"></p>
           <table class="doc-table" aria-label="Ejecuciones de evaluación">
@@ -66,10 +115,12 @@
               <tr>
                 <th>Nombre</th>
                 <th>Estado</th>
+                <th>Variante</th>
                 <th>Hit@k</th>
                 <th>Recall@k</th>
                 <th>MRR</th>
                 <th>RAGAS</th>
+                <th>DeepEval</th>
                 <th></th>
               </tr>
             </thead>
@@ -88,6 +139,10 @@
           <label class="field">
             <span>Descripción</span>
             <textarea id="suite-description" rows="2"></textarea>
+          </label>
+          <label class="field">
+            <span>Dataset</span>
+            <select id="suite-dataset-id"></select>
           </label>
           <div class="field-grid">
             <label class="field">
@@ -110,10 +165,62 @@
           <div class="checkbox-row">
             <label><input id="cfg-generate" type="checkbox" /> Generar respuestas (LLM)</label>
             <label><input id="cfg-ragas" type="checkbox" /> Métricas RAGAS</label>
+            <label><input id="cfg-deepeval" type="checkbox" /> Métricas DeepEval</label>
           </div>
+          <label class="field">
+            <span>Modelo LLM (opcional, A/B)</span>
+            <input id="cfg-llm-model" type="text" placeholder="ollama/qwen2.5:3b" />
+          </label>
           <div class="dialog-actions">
             <button type="button" id="suite-cancel-btn" class="secondary">Cancelar</button>
             <button type="submit" id="suite-save-btn">Guardar</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog id="ab-dialog" class="eval-dialog eval-dialog--wide">
+        <form id="ab-form" method="dialog">
+          <h3>Experimento A/B</h3>
+          <label class="field">
+            <span>Suite base</span>
+            <select id="ab-suite-id" required></select>
+          </label>
+          <label class="field">
+            <span>Nombre del experimento</span>
+            <input id="ab-name" type="text" maxlength="256" placeholder="Comparar modelos" />
+          </label>
+          <div class="ab-variant-grid">
+            <fieldset>
+              <legend>Variante A</legend>
+              <label class="field">
+                <span>Etiqueta</span>
+                <input id="ab-a-name" type="text" value="Variante A" required />
+              </label>
+              <label class="field">
+                <span>Modelo LLM</span>
+                <input id="ab-a-model" type="text" placeholder="ollama/qwen2.5:3b" />
+              </label>
+            </fieldset>
+            <fieldset>
+              <legend>Variante B</legend>
+              <label class="field">
+                <span>Etiqueta</span>
+                <input id="ab-b-name" type="text" value="Variante B" required />
+              </label>
+              <label class="field">
+                <span>Modelo LLM</span>
+                <input id="ab-b-model" type="text" placeholder="ollama/qwen3:4b" />
+              </label>
+            </fieldset>
+          </div>
+          <div class="checkbox-row">
+            <label><input id="ab-generate" type="checkbox" checked /> Generar respuestas</label>
+            <label><input id="ab-deepeval" type="checkbox" /> DeepEval</label>
+            <label><input id="ab-ragas" type="checkbox" /> RAGAS</label>
+          </div>
+          <div class="dialog-actions">
+            <button type="button" id="ab-cancel-btn" class="secondary">Cancelar</button>
+            <button type="submit">Lanzar A/B</button>
           </div>
         </form>
       </dialog>
