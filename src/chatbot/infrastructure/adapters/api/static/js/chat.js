@@ -311,7 +311,7 @@ formEl.addEventListener("submit", async (event) => {
         },
         onThinking(data) {
           sawThinking = true;
-          setStatus("Pensando… (qwen3 puede tardar 1–3 min)");
+          setStatus("Pensando… (el modelo puede tardar un rato)");
           appendThinking(article, data.content || "");
         },
         onToken(data) {
