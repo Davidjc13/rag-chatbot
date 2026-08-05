@@ -1,4 +1,4 @@
-import { getConversation, streamChat } from "./api.js";
+import { getConversation, listModels, streamChat } from "./api.js";
 import { renderCitedHtml } from "./citations.js";
 import {
   createConversationId,
@@ -25,6 +25,7 @@ const refsEmptyEl = document.getElementById("refs-empty");
 const conversationsListEl = document.getElementById("conversations-list");
 const conversationsEmptyEl = document.getElementById("conversations-empty");
 const flowEls = document.querySelectorAll('input[name="retrieval-backend"]');
+const modelSelectEl = document.getElementById("model-select");
 
 let conversationId = getActiveConversationId();
 let streaming = false;
@@ -261,6 +262,44 @@ function selectedBackend() {
   return checked?.value || "postgres";
 }
 
+function selectedModel() {
+  return modelSelectEl?.value?.trim() || null;
+}
+
+async function loadModelSelector() {
+  if (!modelSelectEl) return;
+  modelSelectEl.disabled = true;
+  try {
+    const data = await listModels();
+    const models = Array.isArray(data.models) ? data.models : [];
+    const active = data.active || models[0] || "";
+    modelSelectEl.innerHTML = "";
+    const options = models.length ? models : active ? [active] : [];
+    for (const id of options) {
+      const option = document.createElement("option");
+      option.value = id;
+      option.textContent = id;
+      if (id === active) option.selected = true;
+      modelSelectEl.appendChild(option);
+    }
+    if (!options.length) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = "Sin modelos";
+      modelSelectEl.appendChild(option);
+    }
+  } catch (err) {
+    modelSelectEl.innerHTML = "";
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No se pudieron cargar modelos";
+    modelSelectEl.appendChild(option);
+    setStatus(err.message || "No se pudieron cargar los modelos", true);
+  } finally {
+    if (!streaming) modelSelectEl.disabled = false;
+  }
+}
+
 newBtn.addEventListener("click", () => {
   if (streaming) return;
   startNewConversation();
@@ -284,6 +323,7 @@ formEl.addEventListener("submit", async (event) => {
   sendBtn.disabled = true;
   newBtn.disabled = true;
   if (voiceBtn) voiceBtn.disabled = true;
+  if (modelSelectEl) modelSelectEl.disabled = true;
   inputEl.value = "";
   setStatus(`Generando con ${selectedBackend() === "neo4j" ? "Neo4j" : "PostgreSQL"}…`);
 
@@ -299,6 +339,7 @@ formEl.addEventListener("submit", async (event) => {
       message,
       conversationId: activeId,
       retrievalBackend: selectedBackend(),
+      model: selectedModel(),
       handlers: {
         onMeta(data) {
           if (data.conversation_id) {
@@ -362,6 +403,7 @@ formEl.addEventListener("submit", async (event) => {
     streaming = false;
     sendBtn.disabled = false;
     newBtn.disabled = false;
+    if (modelSelectEl) modelSelectEl.disabled = false;
     voiceControls?.refresh?.();
     inputEl.focus();
   }
@@ -376,6 +418,7 @@ inputEl.addEventListener("keydown", (event) => {
 
 renderReferencesPanel();
 renderConversationsPanel();
+void loadModelSelector();
 
 voiceControls = initVoiceInput({
   formEl,

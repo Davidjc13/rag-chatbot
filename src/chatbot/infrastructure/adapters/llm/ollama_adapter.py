@@ -51,6 +51,7 @@ class OllamaAdapter(LLMPort):  # pylint: disable=too-many-instance-attributes
         *,
         system_prompt: str | None,
         stream: bool,
+        model: str | None = None,
     ) -> dict[str, object]:
         payload_messages: list[dict[str, str]] = []
         if system_prompt:
@@ -58,7 +59,7 @@ class OllamaAdapter(LLMPort):  # pylint: disable=too-many-instance-attributes
         for message in messages:
             payload_messages.append({"role": message.role.value, "content": message.content})
         payload: dict[str, object] = {
-            "model": self._model,
+            "model": model or self._model,
             "messages": payload_messages,
             "stream": stream,
             "options": {
@@ -103,8 +104,14 @@ class OllamaAdapter(LLMPort):  # pylint: disable=too-many-instance-attributes
         messages: list[Message],
         *,
         system_prompt: str | None = None,
+        model: str | None = None,
     ) -> Message:
-        body = self._build_payload(messages, system_prompt=system_prompt, stream=False)
+        body = self._build_payload(
+            messages,
+            system_prompt=system_prompt,
+            stream=False,
+            model=model,
+        )
         url = f"{self._base_url}/api/chat"
         try:
             response = await self._http.post(url, json=body, timeout=self._timeout)
@@ -128,8 +135,14 @@ class OllamaAdapter(LLMPort):  # pylint: disable=too-many-instance-attributes
         messages: list[Message],
         *,
         system_prompt: str | None = None,
+        model: str | None = None,
     ) -> AsyncIterator[LLMDelta]:
-        body = self._build_payload(messages, system_prompt=system_prompt, stream=True)
+        body = self._build_payload(
+            messages,
+            system_prompt=system_prompt,
+            stream=True,
+            model=model,
+        )
         url = f"{self._base_url}/api/chat"
         produced_content = False
         thinking_chars = 0
@@ -220,3 +233,21 @@ class OllamaAdapter(LLMPort):  # pylint: disable=too-many-instance-attributes
         except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             logger.warning("Health check de Ollama falló", exc_info=True)
             return False
+
+    async def list_models(self) -> list[str]:
+        try:
+            response = await self._http.get(
+                f"{self._base_url}/api/tags",
+                timeout=5.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+            models = [
+                str(item["name"])
+                for item in data.get("models", [])
+                if isinstance(item, dict) and item.get("name")
+            ]
+            return models or [self._model]
+        except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            logger.warning("No se pudieron listar modelos de Ollama", exc_info=True)
+            return [self._model]

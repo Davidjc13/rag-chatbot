@@ -51,6 +51,7 @@ from chatbot.infrastructure.adapters.api.schemas import (
     HealthResponse,
     IngestionResponse,
     MessageResponse,
+    ModelsResponse,
     TranscriptionResponse,
 )
 from evals.domain import EvalComparisonResult, EvalExperiment, EvalRunSummary, EvalSuite, EvalSuiteConfig
@@ -102,6 +103,18 @@ async def health(request: Request) -> HealthResponse:
     )
 
 
+@router.get("/models", response_model=ModelsResponse, tags=["chat"])
+async def list_models(request: Request) -> ModelsResponse:
+    llm = _llm(request)
+    models = await llm.list_models()
+    active = llm.model_name.removeprefix("ollama/")
+    if not models:
+        models = [active]
+    if active not in models:
+        models = [active, *models]
+    return ModelsResponse(models=models, active=active)
+
+
 @router.post("/chat", response_model=ChatResponse, tags=["chat"])
 async def chat(payload: ChatRequest, request: Request) -> ChatResponse:
     service = _chat_service(request)
@@ -109,6 +122,7 @@ async def chat(payload: ChatRequest, request: Request) -> ChatResponse:
         payload.message,
         conversation_id=payload.conversation_id,
         retrieval_backend=payload.retrieval_backend,
+        model=payload.model,
     )
     return ChatResponse(
         conversation_id=reply.conversation_id,
@@ -131,6 +145,7 @@ async def chat_stream(payload: ChatRequest, request: Request) -> StreamingRespon
                 payload.message,
                 conversation_id=payload.conversation_id,
                 retrieval_backend=payload.retrieval_backend,
+                model=payload.model,
             ):
                 if isinstance(event, StreamMeta):
                     yield _sse(

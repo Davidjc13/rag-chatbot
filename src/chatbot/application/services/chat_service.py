@@ -92,16 +92,22 @@ class ChatService:
         self._tracer = tracer
         self._rag_top_k = rag_top_k
 
+    def _resolve_model(self, model: str | None) -> str:
+        return (model or "").strip() or self._llm.model_name
+
     async def chat(
         self,
         user_message: str,
         *,
         conversation_id: str | None = None,
         retrieval_backend: str | None = None,
+        model: str | None = None,
     ) -> ChatReply:
         content = (user_message or "").strip()
         if not content:
             raise ValidationError("El mensaje del usuario no puede estar vacío")
+
+        selected_model = self._resolve_model(model)
 
         if self._guardrails is not None:
             self._guardrails.check_input(content)
@@ -133,7 +139,7 @@ class ChatService:
             return ChatReply(
                 conversation_id=conversation.id,
                 message=assistant_message,
-                model=self._llm.model_name,
+                model=selected_model,
             )
 
         system_prompt, llm_messages = await self._build_llm_payload(conversation, retrieved)
@@ -142,7 +148,7 @@ class ChatService:
             "Generando respuesta",
             extra={
                 "conversation_id": conversation.id,
-                "model": self._llm.model_name,
+                "model": selected_model,
                 "history_size": len(conversation.messages),
                 "rag_chunks": len(retrieved),
             },
@@ -152,6 +158,7 @@ class ChatService:
         assistant_message = await self._llm.generate(
             llm_messages,
             system_prompt=system_prompt,
+            model=model,
         )
         duration_ms = int((time.perf_counter() - started) * 1000)
         if self._guardrails is not None:
@@ -162,7 +169,7 @@ class ChatService:
 
         logger.info(
             "Respuesta generada",
-            extra={"conversation_id": conversation.id, "model": self._llm.model_name},
+            extra={"conversation_id": conversation.id, "model": selected_model},
         )
 
         self._record_chat_trace(
@@ -179,7 +186,7 @@ class ChatService:
         return ChatReply(
             conversation_id=conversation.id,
             message=assistant_message,
-            model=self._llm.model_name,
+            model=selected_model,
         )
 
     async def chat_stream(
@@ -188,10 +195,13 @@ class ChatService:
         *,
         conversation_id: str | None = None,
         retrieval_backend: str | None = None,
+        model: str | None = None,
     ) -> AsyncIterator[StreamEvent]:
         content = (user_message or "").strip()
         if not content:
             raise ValidationError("El mensaje del usuario no puede estar vacío")
+
+        selected_model = self._resolve_model(model)
 
         if self._guardrails is not None:
             self._guardrails.check_input(content)
@@ -206,7 +216,7 @@ class ChatService:
         sources = self._sources_payload(retrieved)
         yield StreamMeta(
             conversation_id=conversation.id,
-            model=self._llm.model_name,
+            model=selected_model,
             sources=sources,
         )
 
@@ -235,7 +245,7 @@ class ChatService:
             "Generando respuesta (stream)",
             extra={
                 "conversation_id": conversation.id,
-                "model": self._llm.model_name,
+                "model": selected_model,
                 "history_size": len(conversation.messages),
                 "rag_chunks": len(retrieved),
             },
@@ -249,6 +259,7 @@ class ChatService:
         async for delta in self._llm.generate_stream(
             llm_messages,
             system_prompt=system_prompt,
+            model=model,
         ):
             if delta.input_tokens is not None:
                 input_tokens = delta.input_tokens

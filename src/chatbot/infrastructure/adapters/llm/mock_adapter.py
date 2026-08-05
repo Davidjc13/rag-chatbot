@@ -24,12 +24,14 @@ class MockLLMAdapter(LLMPort):
         messages: list[Message],
         *,
         system_prompt: str | None,
+        model: str | None = None,
     ) -> str:
+        active_model = model or self._model
         last_user = next(
             (m.content for m in reversed(messages) if m.role == Role.USER),
             "",
         )
-        reply = f"[mock:{self._model}] Recibí: {last_user}"
+        reply = f"[mock:{active_model}] Recibí: {last_user}"
         if system_prompt:
             reply = f"{reply} (system ok)"
         return reply
@@ -39,8 +41,9 @@ class MockLLMAdapter(LLMPort):
         messages: list[Message],
         *,
         system_prompt: str | None = None,
+        model: str | None = None,
     ) -> Message:
-        reply = self._build_reply(messages, system_prompt=system_prompt)
+        reply = self._build_reply(messages, system_prompt=system_prompt, model=model)
         return Message(role=Role.ASSISTANT, content=reply)
 
     async def generate_stream(
@@ -48,8 +51,9 @@ class MockLLMAdapter(LLMPort):
         messages: list[Message],
         *,
         system_prompt: str | None = None,
+        model: str | None = None,
     ) -> AsyncIterator[LLMDelta]:
-        reply = self._build_reply(messages, system_prompt=system_prompt)
+        reply = self._build_reply(messages, system_prompt=system_prompt, model=model)
         words = reply.split(" ")
         for index, word in enumerate(words):
             suffix = " " if index < len(words) - 1 else ""
@@ -64,3 +68,6 @@ class MockLLMAdapter(LLMPort):
 
     async def health_check(self) -> bool:
         return True
+
+    async def list_models(self) -> list[str]:
+        return [self._model]

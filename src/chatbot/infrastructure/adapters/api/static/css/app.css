@@ -433,6 +433,39 @@ button.compact {
   border-top: 1px solid var(--line);
 }
 
+.model-picker {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.model-picker legend {
+  margin-bottom: 0;
+  color: var(--ink-muted);
+  font-size: 0.82rem;
+}
+
+.model-picker select {
+  min-width: 12rem;
+  max-width: 100%;
+  padding: 0.45rem 0.65rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--bg-elevated);
+  color: var(--ink);
+  font: inherit;
+}
+
+.model-picker select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .voice-auto-send-label {
   grid-column: 1 / -1;
   display: inline-flex;

@@ -135,11 +135,21 @@ export async function getConversation(conversationId) {
   return apiJson(`/conversations/${encodeURIComponent(conversationId)}`);
 }
 
+export async function listModels() {
+  return apiJson("/models");
+}
+
 /**
  * Consume SSE de POST /chat/stream.
  * handlers: { onMeta, onThinking, onToken, onDone, onError }
  */
-export async function streamChat({ message, conversationId, retrievalBackend, handlers }) {
+export async function streamChat({
+  message,
+  conversationId,
+  retrievalBackend,
+  model,
+  handlers,
+}) {
   const response = await fetch(`${API_BASE}/chat/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
@@ -147,6 +157,7 @@ export async function streamChat({ message, conversationId, retrievalBackend, ha
       message,
       conversation_id: conversationId || null,
       retrieval_backend: retrievalBackend || "postgres",
+      model: model || null,
     }),
   });
 

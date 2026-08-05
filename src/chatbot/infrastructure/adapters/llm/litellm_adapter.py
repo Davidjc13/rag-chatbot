@@ -67,9 +67,11 @@ class LiteLLMAdapter(LLMPort):
         *,
         system_prompt: str | None,
         stream: bool,
+        model: str | None = None,
     ) -> dict[str, object]:
+        selected = self._resolve_model(model)
         kwargs: dict[str, object] = {
-            "model": self._model,
+            "model": selected,
             "messages": self._build_messages(messages, system_prompt=system_prompt),
             "temperature": self._temperature,
             "timeout": self._timeout,
@@ -80,6 +82,12 @@ class LiteLLMAdapter(LLMPort):
         if self._api_key:
             kwargs["api_key"] = self._api_key
         return kwargs
+
+    def _resolve_model(self, model: str | None) -> str:
+        selected = (model or "").strip() or self._model
+        if self._model.startswith("ollama/") and not selected.startswith("ollama/"):
+            return f"ollama/{selected}"
+        return selected
 
     def _map_exception(self, exc: Exception) -> Exception:
         if isinstance(exc, (APIConnectionError, Timeout)):
@@ -101,8 +109,14 @@ class LiteLLMAdapter(LLMPort):
         messages: list[Message],
         *,
         system_prompt: str | None = None,
+        model: str | None = None,
     ) -> Message:
-        kwargs = self._completion_kwargs(messages, system_prompt=system_prompt, stream=False)
+        kwargs = self._completion_kwargs(
+            messages,
+            system_prompt=system_prompt,
+            stream=False,
+            model=model,
+        )
 
         logger.debug(
             "Llamando a LiteLLM",
@@ -145,8 +159,14 @@ class LiteLLMAdapter(LLMPort):
         messages: list[Message],
         *,
         system_prompt: str | None = None,
+        model: str | None = None,
     ) -> AsyncIterator[LLMDelta]:
-        kwargs = self._completion_kwargs(messages, system_prompt=system_prompt, stream=True)
+        kwargs = self._completion_kwargs(
+            messages,
+            system_prompt=system_prompt,
+            stream=True,
+            model=model,
+        )
 
         logger.debug(
             "Llamando a LiteLLM (stream)",
@@ -247,3 +267,25 @@ class LiteLLMAdapter(LLMPort):
         except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             logger.warning("Health check de LiteLLM falló", exc_info=True)
             return False
+
+    async def list_models(self) -> list[str]:
+        if self._api_base and (
+            self._model.startswith("ollama/") or "ollama" in (self._api_base or "")
+        ):
+            try:
+                response = await AsyncHttpClient.get_instance().get(
+                    f"{self._api_base.rstrip('/')}/api/tags",
+                    timeout=5.0,
+                )
+                response.raise_for_status()
+                data = response.json()
+                models = [
+                    str(item["name"])
+                    for item in data.get("models", [])
+                    if isinstance(item, dict) and item.get("name")
+                ]
+                if models:
+                    return models
+            except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+                logger.warning("No se pudieron listar modelos vía LiteLLM/Ollama", exc_info=True)
+        return [self._model.removeprefix("ollama/") or self._model]
