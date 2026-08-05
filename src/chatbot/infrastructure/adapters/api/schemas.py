@@ -12,6 +12,7 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=16_000)
     conversation_id: str | None = None
     retrieval_backend: Literal["postgres", "neo4j"] = "postgres"
+    model: str | None = Field(default=None, max_length=256)
 
 
 class MessageResponse(BaseModel):
@@ -39,6 +40,11 @@ class HealthResponse(BaseModel):
     llm_healthy: bool
 
 
+class ModelsResponse(BaseModel):
+    models: list[str]
+    active: str
+
+
 class ErrorResponse(BaseModel):
     error: str
     code: str
@@ -62,6 +68,10 @@ class DocumentSummaryResponse(BaseModel):
 
 class DocumentListResponse(BaseModel):
     documents: list[DocumentSummaryResponse]
+
+
+class TranscriptionResponse(BaseModel):
+    text: str
 
 
 class EvalSuiteConfigRequest(BaseModel):

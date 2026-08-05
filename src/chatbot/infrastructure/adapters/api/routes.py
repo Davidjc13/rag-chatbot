@@ -18,6 +18,7 @@ from chatbot.application.services.chat_service import (
 )
 from chatbot.application.services.eval_service import EvalService
 from chatbot.application.services.ingestion_service import IngestionService
+from chatbot.application.services.transcription_service import TranscriptionService
 from chatbot.core.env import Env
 from chatbot.domain.exceptions import ChatbotError
 from chatbot.domain.ports import LLMPort
@@ -50,6 +51,8 @@ from chatbot.infrastructure.adapters.api.schemas import (
     HealthResponse,
     IngestionResponse,
     MessageResponse,
+    ModelsResponse,
+    TranscriptionResponse,
 )
 from evals.domain import EvalComparisonResult, EvalExperiment, EvalRunSummary, EvalSuite, EvalSuiteConfig
 from evals.json_dataset import dataset_template_path
@@ -69,6 +72,10 @@ def _ingestion_service(request: Request) -> IngestionService:
 
 def _eval_service(request: Request) -> EvalService:
     return request.app.state.eval_service
+
+
+def _transcription_service(request: Request) -> TranscriptionService:
+    return request.app.state.transcription_service
 
 
 def _llm(request: Request) -> LLMPort:
@@ -96,6 +103,18 @@ async def health(request: Request) -> HealthResponse:
     )
 
 
+@router.get("/models", response_model=ModelsResponse, tags=["chat"])
+async def list_models(request: Request) -> ModelsResponse:
+    llm = _llm(request)
+    models = await llm.list_models()
+    active = llm.model_name.removeprefix("ollama/")
+    if not models:
+        models = [active]
+    if active not in models:
+        models = [active, *models]
+    return ModelsResponse(models=models, active=active)
+
+
 @router.post("/chat", response_model=ChatResponse, tags=["chat"])
 async def chat(payload: ChatRequest, request: Request) -> ChatResponse:
     service = _chat_service(request)
@@ -103,6 +122,7 @@ async def chat(payload: ChatRequest, request: Request) -> ChatResponse:
         payload.message,
         conversation_id=payload.conversation_id,
         retrieval_backend=payload.retrieval_backend,
+        model=payload.model,
     )
     return ChatResponse(
         conversation_id=reply.conversation_id,
@@ -125,6 +145,7 @@ async def chat_stream(payload: ChatRequest, request: Request) -> StreamingRespon
                 payload.message,
                 conversation_id=payload.conversation_id,
                 retrieval_backend=payload.retrieval_backend,
+                model=payload.model,
             ):
                 if isinstance(event, StreamMeta):
                     yield _sse(
@@ -158,6 +179,17 @@ async def chat_stream(payload: ChatRequest, request: Request) -> StreamingRespon
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post("/transcribe", response_model=TranscriptionResponse, tags=["chat"])
+async def transcribe_audio(
+    request: Request,
+    file: UploadFile = File(...),
+) -> TranscriptionResponse:
+    service = _transcription_service(request)
+    data = await file.read()
+    text = await service.transcribe(data=data, content_type=file.content_type)
+    return TranscriptionResponse(text=text)
 
 
 @router.get(

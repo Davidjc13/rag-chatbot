@@ -272,3 +272,26 @@ class Env:  # pylint: disable=too-many-public-methods
         if self.llm_provider == "ollama":
             return self.ollama_model
         return self.litellm_model or self.ollama_model
+
+    @property
+    def stt_enabled(self) -> bool:
+        return self.get_bool("STT_ENABLED", True)
+
+    @property
+    def stt_provider(self) -> Literal["faster_whisper", "litellm"]:
+        value = (self.get("STT_PROVIDER", "faster_whisper") or "faster_whisper").lower()
+        if value not in {"faster_whisper", "litellm"}:
+            return "faster_whisper"
+        return value  # type: ignore[return-value]
+
+    @property
+    def stt_model(self) -> str:
+        return self.get("STT_MODEL", "base") or "base"
+
+    @property
+    def stt_language(self) -> str:
+        return self.get("STT_LANGUAGE", "es") or "es"
+
+    @property
+    def stt_max_audio_seconds(self) -> int:
+        return self.get_int("STT_MAX_AUDIO_SECONDS", 60)

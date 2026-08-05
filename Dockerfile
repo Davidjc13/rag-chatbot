@@ -18,7 +18,10 @@ FROM python:3.12-slim-bookworm AS runtime
 
 WORKDIR /app
 
-RUN groupadd --system app && useradd --system --gid app --create-home app
+RUN groupadd --system app && useradd --system --gid app --create-home app \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app /app
 

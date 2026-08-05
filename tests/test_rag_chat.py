@@ -35,6 +35,7 @@ class CapturingLLM(LLMPort):
         messages: list[Message],
         *,
         system_prompt: str | None = None,
+        model: str | None = None,
     ) -> Message:
         self.last_system_prompt = system_prompt
         self.last_messages = list(messages)
@@ -45,10 +46,14 @@ class CapturingLLM(LLMPort):
         messages: list[Message],
         *,
         system_prompt: str | None = None,
+        model: str | None = None,
     ) -> AsyncIterator[LLMDelta]:
         self.last_system_prompt = system_prompt
         self.last_messages = list(messages)
         yield LLMDelta(text="ok", kind="content")
+
+    async def list_models(self) -> list[str]:
+        return [self.model_name]
 
     async def health_check(self) -> bool:
         return True

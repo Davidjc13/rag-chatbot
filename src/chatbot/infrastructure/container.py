@@ -13,6 +13,7 @@ from chatbot.application.services.eval_service import EvalService
 from chatbot.application.services.guardrails import RuleBasedGuardrail
 from chatbot.application.services.ingestion_service import IngestionService
 from chatbot.application.services.table_aware_chunker import TableAwareChunker
+from chatbot.application.services.transcription_service import TranscriptionService
 from chatbot.core.env import Env
 from chatbot.core.http import AsyncHttpClient
 from chatbot.domain.ports import (
@@ -22,12 +23,14 @@ from chatbot.domain.ports import (
     LLMPort,
     PromptRepositoryPort,
     TracingPort,
+    TranscriptionPort,
     VectorStorePort,
 )
 from chatbot.domain.retrieval import RETRIEVAL_BACKEND_POSTGRES
 from chatbot.infrastructure.adapters.ingestion.parser_factory import DocumentParserFactory
 from chatbot.infrastructure.adapters.llm.embedding_adapter import LiteLLMEmbeddingAdapter
 from chatbot.infrastructure.adapters.llm.llm_factory import LLMFactory
+from chatbot.infrastructure.adapters.stt.stt_factory import STTFactory
 from chatbot.infrastructure.adapters.persistence.neo4j_vector_store import (
     Neo4jVectorStore,
 )
@@ -80,6 +83,8 @@ class AppContainer:  # pylint: disable=too-many-instance-attributes
             self.engine
         )
         self.llm: LLMPort = LLMFactory.create(self.env)
+        self.stt: TranscriptionPort = STTFactory.create(self.env)
+        self.transcription_service = TranscriptionService(stt=self.stt, env=self.env)
         self.repository: ConversationRepositoryPort = PostgresConversationRepository(
             self.session_factory
         )

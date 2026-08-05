@@ -43,6 +43,19 @@ class TracingPort(ABC):
         """Registra una generación completada (p. ej. tras cerrar el SSE)."""
 
 
+class TranscriptionPort(ABC):
+    """Puerto de salida para transcripción de voz a texto (STT)."""
+
+    @abstractmethod
+    async def transcribe(self, audio: bytes, *, mime: str, language: str) -> str:
+        """Transcribe audio binario y devuelve el texto reconocido."""
+
+    @property
+    @abstractmethod
+    def model_name(self) -> str:
+        """Nombre del modelo STT en uso."""
+
+
 class LLMPort(ABC):
     """Puerto de salida hacia un proveedor de modelos de lenguaje."""
 
@@ -52,6 +65,7 @@ class LLMPort(ABC):
         messages: list[Message],
         *,
         system_prompt: str | None = None,
+        model: str | None = None,
     ) -> Message:
         """Genera una respuesta del asistente a partir del historial."""
 
@@ -61,9 +75,14 @@ class LLMPort(ABC):
         messages: list[Message],
         *,
         system_prompt: str | None = None,
+        model: str | None = None,
     ) -> AsyncIterator[LLMDelta]:
         """Genera la respuesta del asistente en streaming (deltas tipados)."""
         yield LLMDelta("")
+
+    @abstractmethod
+    async def list_models(self) -> list[str]:
+        """Lista los modelos disponibles para selección en la UI."""
 
     @abstractmethod
     async def health_check(self) -> bool:

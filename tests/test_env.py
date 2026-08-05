@@ -54,6 +54,15 @@ def test_empty_optional_becomes_none(monkeypatch: pytest.MonkeyPatch) -> None:
     assert env.litellm_api_key is None
 
 
+def test_stt_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    env = Env.get_instance()
+    assert env.stt_enabled is True
+    assert env.stt_provider == "faster_whisper"
+    assert env.stt_model == "base"
+    assert env.stt_language == "es"
+    assert env.stt_max_audio_seconds == 60
+
+
 def test_vector_backend_defaults_and_neo4j_config(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("VECTOR_BACKEND", "neo4j")
     monkeypatch.setenv("NEO4J_URI", "bolt://graph:7687")

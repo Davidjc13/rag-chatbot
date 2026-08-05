@@ -1,4 +1,4 @@
-import { getConversation, streamChat } from "./api.js";
+import { getConversation, listModels, streamChat } from "./api.js";
 import { renderCitedHtml } from "./citations.js";
 import {
   createConversationId,
@@ -9,11 +9,14 @@ import {
   setTitleFromFirstQuery,
   upsertConversationMeta,
 } from "./conversations.js";
+import { initVoiceInput } from "./voice.js";
 
 const logEl = document.getElementById("chat-log");
 const formEl = document.getElementById("chat-form");
 const inputEl = document.getElementById("message-input");
 const sendBtn = document.getElementById("send-btn");
+const voiceBtn = document.getElementById("voice-btn");
+const voiceAutoSendEl = document.getElementById("voice-auto-send");
 const newBtn = document.getElementById("new-chat-btn");
 const statusEl = document.getElementById("status");
 const emptyEl = document.getElementById("empty-hint");
@@ -22,9 +25,12 @@ const refsEmptyEl = document.getElementById("refs-empty");
 const conversationsListEl = document.getElementById("conversations-list");
 const conversationsEmptyEl = document.getElementById("conversations-empty");
 const flowEls = document.querySelectorAll('input[name="retrieval-backend"]');
+const modelSelectEl = document.getElementById("model-select");
 
 let conversationId = getActiveConversationId();
 let streaming = false;
+/** @type {{ refresh?: () => void } | null} */
+let voiceControls = null;
 /** @type {Map<string, {index:number, source:string, title:string, id:string}>} */
 const references = new Map();
 
@@ -256,6 +262,44 @@ function selectedBackend() {
   return checked?.value || "postgres";
 }
 
+function selectedModel() {
+  return modelSelectEl?.value?.trim() || null;
+}
+
+async function loadModelSelector() {
+  if (!modelSelectEl) return;
+  modelSelectEl.disabled = true;
+  try {
+    const data = await listModels();
+    const models = Array.isArray(data.models) ? data.models : [];
+    const active = data.active || models[0] || "";
+    modelSelectEl.innerHTML = "";
+    const options = models.length ? models : active ? [active] : [];
+    for (const id of options) {
+      const option = document.createElement("option");
+      option.value = id;
+      option.textContent = id;
+      if (id === active) option.selected = true;
+      modelSelectEl.appendChild(option);
+    }
+    if (!options.length) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = "Sin modelos";
+      modelSelectEl.appendChild(option);
+    }
+  } catch (err) {
+    modelSelectEl.innerHTML = "";
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No se pudieron cargar modelos";
+    modelSelectEl.appendChild(option);
+    setStatus(err.message || "No se pudieron cargar los modelos", true);
+  } finally {
+    if (!streaming) modelSelectEl.disabled = false;
+  }
+}
+
 newBtn.addEventListener("click", () => {
   if (streaming) return;
   startNewConversation();
@@ -278,6 +322,8 @@ formEl.addEventListener("submit", async (event) => {
   streaming = true;
   sendBtn.disabled = true;
   newBtn.disabled = true;
+  if (voiceBtn) voiceBtn.disabled = true;
+  if (modelSelectEl) modelSelectEl.disabled = true;
   inputEl.value = "";
   setStatus(`Generando con ${selectedBackend() === "neo4j" ? "Neo4j" : "PostgreSQL"}…`);
 
@@ -293,6 +339,7 @@ formEl.addEventListener("submit", async (event) => {
       message,
       conversationId: activeId,
       retrievalBackend: selectedBackend(),
+      model: selectedModel(),
       handlers: {
         onMeta(data) {
           if (data.conversation_id) {
@@ -305,7 +352,7 @@ formEl.addEventListener("submit", async (event) => {
         },
         onThinking(data) {
           sawThinking = true;
-          setStatus("Pensando… (qwen3 puede tardar 1–3 min)");
+          setStatus("Pensando… (el modelo puede tardar un rato)");
           appendThinking(article, data.content || "");
         },
         onToken(data) {
@@ -356,6 +403,8 @@ formEl.addEventListener("submit", async (event) => {
     streaming = false;
     sendBtn.disabled = false;
     newBtn.disabled = false;
+    if (modelSelectEl) modelSelectEl.disabled = false;
+    voiceControls?.refresh?.();
     inputEl.focus();
   }
 });
@@ -369,6 +418,16 @@ inputEl.addEventListener("keydown", (event) => {
 
 renderReferencesPanel();
 renderConversationsPanel();
+void loadModelSelector();
+
+voiceControls = initVoiceInput({
+  formEl,
+  inputEl,
+  voiceBtn,
+  autoSendEl: voiceAutoSendEl,
+  getStreaming: () => streaming,
+  setStatus,
+});
 
 if (conversationId) {
   void switchConversation(conversationId);

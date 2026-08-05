@@ -76,3 +76,9 @@ class GuardrailBlockedError(ChatbotError):
 class InvalidMimeTypeError(ChatbotError):
     def __init__(self, message: str) -> None:
         super().__init__(message, code="invalid_mime_type")
+
+
+class TranscriptionUnavailableError(ChatbotError):
+    def __init__(self, message: str, *, provider: str = "unknown") -> None:
+        super().__init__(message, code="transcription_unavailable")
+        self.provider = provider
