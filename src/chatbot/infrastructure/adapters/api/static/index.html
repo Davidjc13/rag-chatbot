@@ -66,10 +66,24 @@
               name="message"
               rows="2"
               maxlength="16000"
-              placeholder="Escribe tu pregunta…"
+              placeholder="Escribe o habla tu pregunta…"
               required
             ></textarea>
+            <button
+              type="button"
+              id="voice-btn"
+              class="secondary voice-btn"
+              aria-label="Entrada por voz"
+              aria-pressed="false"
+              title="Entrada por voz"
+            >
+              🎤
+            </button>
             <button type="submit" id="send-btn">Enviar</button>
+            <label class="voice-auto-send-label">
+              <input type="checkbox" id="voice-auto-send" />
+              Enviar al detectar pausa
+            </label>
           </form>
         </main>
 

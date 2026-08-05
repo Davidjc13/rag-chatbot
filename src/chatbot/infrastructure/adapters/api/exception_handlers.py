@@ -15,6 +15,7 @@ from chatbot.domain.exceptions import (
     GuardrailBlockedError,
     InvalidMimeTypeError,
     LLMUnavailableError,
+    TranscriptionUnavailableError,
     UnsupportedDocumentError,
     ValidationError,
 )
@@ -89,6 +90,17 @@ def register_exception_handlers(app: FastAPI) -> None:
         exc: LLMUnavailableError,
     ) -> JSONResponse:
         logger.error("LLM no disponible: %s", exc.message)
+        return JSONResponse(
+            status_code=503,
+            content={"error": exc.message, "code": exc.code, "detail": f"provider={exc.provider}"},
+        )
+
+    @app.exception_handler(TranscriptionUnavailableError)
+    async def transcription_unavailable_handler(
+        _request: Request,
+        exc: TranscriptionUnavailableError,
+    ) -> JSONResponse:
+        logger.error("STT no disponible: %s", exc.message)
         return JSONResponse(
             status_code=503,
             content={"error": exc.message, "code": exc.code, "detail": f"provider={exc.provider}"},

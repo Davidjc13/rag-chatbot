@@ -18,6 +18,7 @@ from chatbot.application.services.chat_service import (
 )
 from chatbot.application.services.eval_service import EvalService
 from chatbot.application.services.ingestion_service import IngestionService
+from chatbot.application.services.transcription_service import TranscriptionService
 from chatbot.core.env import Env
 from chatbot.domain.exceptions import ChatbotError
 from chatbot.domain.ports import LLMPort
@@ -50,6 +51,7 @@ from chatbot.infrastructure.adapters.api.schemas import (
     HealthResponse,
     IngestionResponse,
     MessageResponse,
+    TranscriptionResponse,
 )
 from evals.domain import EvalComparisonResult, EvalExperiment, EvalRunSummary, EvalSuite, EvalSuiteConfig
 from evals.json_dataset import dataset_template_path
@@ -69,6 +71,10 @@ def _ingestion_service(request: Request) -> IngestionService:
 
 def _eval_service(request: Request) -> EvalService:
     return request.app.state.eval_service
+
+
+def _transcription_service(request: Request) -> TranscriptionService:
+    return request.app.state.transcription_service
 
 
 def _llm(request: Request) -> LLMPort:
@@ -158,6 +164,17 @@ async def chat_stream(payload: ChatRequest, request: Request) -> StreamingRespon
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post("/transcribe", response_model=TranscriptionResponse, tags=["chat"])
+async def transcribe_audio(
+    request: Request,
+    file: UploadFile = File(...),
+) -> TranscriptionResponse:
+    service = _transcription_service(request)
+    data = await file.read()
+    text = await service.transcribe(data=data, content_type=file.content_type)
+    return TranscriptionResponse(text=text)
 
 
 @router.get(

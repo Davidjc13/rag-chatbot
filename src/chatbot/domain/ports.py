@@ -43,6 +43,19 @@ class TracingPort(ABC):
         """Registra una generación completada (p. ej. tras cerrar el SSE)."""
 
 
+class TranscriptionPort(ABC):
+    """Puerto de salida para transcripción de voz a texto (STT)."""
+
+    @abstractmethod
+    async def transcribe(self, audio: bytes, *, mime: str, language: str) -> str:
+        """Transcribe audio binario y devuelve el texto reconocido."""
+
+    @property
+    @abstractmethod
+    def model_name(self) -> str:
+        """Nombre del modelo STT en uso."""
+
+
 class LLMPort(ABC):
     """Puerto de salida hacia un proveedor de modelos de lenguaje."""
 

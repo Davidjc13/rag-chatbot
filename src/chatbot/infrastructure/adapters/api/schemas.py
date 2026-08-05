@@ -64,6 +64,10 @@ class DocumentListResponse(BaseModel):
     documents: list[DocumentSummaryResponse]
 
 
+class TranscriptionResponse(BaseModel):
+    text: str
+
+
 class EvalSuiteConfigRequest(BaseModel):
     limit: int = Field(default=20, ge=1, le=500)
     distractors: int = Field(default=50, ge=0, le=5000)

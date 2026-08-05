@@ -34,6 +34,7 @@ def create_app(container: AppContainer | None = None) -> FastAPI:
         app.state.chat_service = app_container.chat_service
         app.state.ingestion_service = app_container.ingestion_service
         app.state.eval_service = app_container.eval_service
+        app.state.transcription_service = app_container.transcription_service
         try:
             yield
         finally:

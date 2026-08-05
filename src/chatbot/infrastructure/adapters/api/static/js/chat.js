@@ -9,11 +9,14 @@ import {
   setTitleFromFirstQuery,
   upsertConversationMeta,
 } from "./conversations.js";
+import { initVoiceInput } from "./voice.js";
 
 const logEl = document.getElementById("chat-log");
 const formEl = document.getElementById("chat-form");
 const inputEl = document.getElementById("message-input");
 const sendBtn = document.getElementById("send-btn");
+const voiceBtn = document.getElementById("voice-btn");
+const voiceAutoSendEl = document.getElementById("voice-auto-send");
 const newBtn = document.getElementById("new-chat-btn");
 const statusEl = document.getElementById("status");
 const emptyEl = document.getElementById("empty-hint");
@@ -25,6 +28,8 @@ const flowEls = document.querySelectorAll('input[name="retrieval-backend"]');
 
 let conversationId = getActiveConversationId();
 let streaming = false;
+/** @type {{ refresh?: () => void } | null} */
+let voiceControls = null;
 /** @type {Map<string, {index:number, source:string, title:string, id:string}>} */
 const references = new Map();
 
@@ -278,6 +283,7 @@ formEl.addEventListener("submit", async (event) => {
   streaming = true;
   sendBtn.disabled = true;
   newBtn.disabled = true;
+  if (voiceBtn) voiceBtn.disabled = true;
   inputEl.value = "";
   setStatus(`Generando con ${selectedBackend() === "neo4j" ? "Neo4j" : "PostgreSQL"}…`);
 
@@ -356,6 +362,7 @@ formEl.addEventListener("submit", async (event) => {
     streaming = false;
     sendBtn.disabled = false;
     newBtn.disabled = false;
+    voiceControls?.refresh?.();
     inputEl.focus();
   }
 });
@@ -369,6 +376,15 @@ inputEl.addEventListener("keydown", (event) => {
 
 renderReferencesPanel();
 renderConversationsPanel();
+
+voiceControls = initVoiceInput({
+  formEl,
+  inputEl,
+  voiceBtn,
+  autoSendEl: voiceAutoSendEl,
+  getStreaming: () => streaming,
+  setStatus,
+});
 
 if (conversationId) {
   void switchConversation(conversationId);
