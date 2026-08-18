@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 
 from chatbot.application.services.chat_service import (
     ChatService,
+    StreamCancelled,
     StreamDone,
     StreamMeta,
     StreamThinking,
@@ -139,6 +140,9 @@ async def chat(payload: ChatRequest, request: Request) -> ChatResponse:
 async def chat_stream(payload: ChatRequest, request: Request) -> StreamingResponse:
     service = _chat_service(request)
 
+    async def is_cancelled() -> bool:
+        return await request.is_disconnected()
+
     async def event_generator() -> AsyncIterator[str]:
         try:
             async for event in service.chat_stream(
@@ -146,6 +150,7 @@ async def chat_stream(payload: ChatRequest, request: Request) -> StreamingRespon
                 conversation_id=payload.conversation_id,
                 retrieval_backend=payload.retrieval_backend,
                 model=payload.model,
+                is_cancelled=is_cancelled,
             ):
                 if isinstance(event, StreamMeta):
                     yield _sse(
@@ -162,6 +167,8 @@ async def chat_stream(payload: ChatRequest, request: Request) -> StreamingRespon
                     yield _sse("token", {"content": event.content})
                 elif isinstance(event, StreamDone):
                     yield _sse("done", {"conversation_id": event.conversation_id})
+                elif isinstance(event, StreamCancelled):
+                    yield _sse("cancelled", {"conversation_id": event.conversation_id})
         except ChatbotError as exc:
             yield _sse("error", {"code": exc.code, "error": exc.message})
         except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught

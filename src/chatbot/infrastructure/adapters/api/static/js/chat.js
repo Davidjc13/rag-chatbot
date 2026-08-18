@@ -29,6 +29,8 @@ const modelSelectEl = document.getElementById("model-select");
 
 let conversationId = getActiveConversationId();
 let streaming = false;
+/** @type {AbortController | null} */
+let streamAbort = null;
 /** @type {{ refresh?: () => void } | null} */
 let voiceControls = null;
 /** @type {Map<string, {index:number, source:string, title:string, id:string}>} */
@@ -300,6 +302,35 @@ async function loadModelSelector() {
   }
 }
 
+function setStreamingUI(active) {
+  streaming = active;
+  sendBtn.textContent = active ? "Detener" : "Enviar";
+  sendBtn.type = active ? "button" : "submit";
+  sendBtn.classList.toggle("danger", active);
+  sendBtn.setAttribute(
+    "aria-label",
+    active ? "Detener generación" : "Enviar mensaje",
+  );
+  newBtn.disabled = active;
+  if (voiceBtn) voiceBtn.disabled = active;
+  if (modelSelectEl) modelSelectEl.disabled = active;
+}
+
+function finishStreamUI(article) {
+  article.classList.remove("typing");
+  setStreamingUI(false);
+  streamAbort = null;
+  voiceControls?.refresh?.();
+  inputEl.focus();
+}
+
+sendBtn.addEventListener("click", (event) => {
+  if (streaming) {
+    event.preventDefault();
+    streamAbort?.abort();
+  }
+});
+
 newBtn.addEventListener("click", () => {
   if (streaming) return;
   startNewConversation();
@@ -319,11 +350,8 @@ formEl.addEventListener("submit", async (event) => {
   }
   renderConversationsPanel();
 
-  streaming = true;
-  sendBtn.disabled = true;
-  newBtn.disabled = true;
-  if (voiceBtn) voiceBtn.disabled = true;
-  if (modelSelectEl) modelSelectEl.disabled = true;
+  setStreamingUI(true);
+  streamAbort = new AbortController();
   inputEl.value = "";
   setStatus(`Generando con ${selectedBackend() === "neo4j" ? "Neo4j" : "PostgreSQL"}…`);
 
@@ -333,6 +361,23 @@ formEl.addEventListener("submit", async (event) => {
   let rawAssistant = "";
   let sawThinking = false;
   let sawContent = false;
+  let cancelled = false;
+
+  function handleCancelled() {
+    if (cancelled) return;
+    cancelled = true;
+    if (sawThinking) finishThinking(article);
+    if (rawAssistant.trim()) {
+      updateAssistantBody(assistantBody, rawAssistant);
+      upsertConversationMeta({ id: activeId });
+      renderConversationsPanel();
+      setStatus("Generación detenida");
+    } else {
+      article.remove();
+      if (!logEl.querySelector(".msg")) showEmpty();
+      setStatus("Generación detenida");
+    }
+  }
 
   try {
     await streamChat({
@@ -340,6 +385,7 @@ formEl.addEventListener("submit", async (event) => {
       conversationId: activeId,
       retrievalBackend: selectedBackend(),
       model: selectedModel(),
+      signal: streamAbort.signal,
       handlers: {
         onMeta(data) {
           if (data.conversation_id) {
@@ -371,6 +417,7 @@ formEl.addEventListener("submit", async (event) => {
           renderConversationsPanel();
           setStatus("");
         },
+        onCancelled: handleCancelled,
         onError(data) {
           const text = data.error || "Error en el stream";
           if (!rawAssistant.trim()) {
@@ -385,7 +432,7 @@ formEl.addEventListener("submit", async (event) => {
       },
     });
 
-    if (!rawAssistant.trim() && !assistantBody.textContent.trim()) {
+    if (!cancelled && !rawAssistant.trim() && !assistantBody.textContent.trim()) {
       assistantBody.textContent = "(sin respuesta)";
     }
   } catch (err) {
@@ -399,13 +446,7 @@ formEl.addEventListener("submit", async (event) => {
     }
     setStatus(text, true);
   } finally {
-    article.classList.remove("typing");
-    streaming = false;
-    sendBtn.disabled = false;
-    newBtn.disabled = false;
-    if (modelSelectEl) modelSelectEl.disabled = false;
-    voiceControls?.refresh?.();
-    inputEl.focus();
+    finishStreamUI(article);
   }
 });
 

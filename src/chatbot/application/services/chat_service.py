@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
@@ -49,7 +49,12 @@ class StreamDone:
     conversation_id: str
 
 
-StreamEvent = StreamMeta | StreamToken | StreamThinking | StreamDone
+@dataclass(frozen=True, slots=True)
+class StreamCancelled:
+    conversation_id: str
+
+
+StreamEvent = StreamMeta | StreamToken | StreamThinking | StreamDone | StreamCancelled
 
 _CITATION_INSTRUCTIONS = (
     "Cuando uses información de un documento, cítalo en línea una sola vez "
@@ -196,6 +201,7 @@ class ChatService:
         conversation_id: str | None = None,
         retrieval_backend: str | None = None,
         model: str | None = None,
+        is_cancelled: Callable[[], Awaitable[bool]] | None = None,
     ) -> AsyncIterator[StreamEvent]:
         content = (user_message or "").strip()
         if not content:
@@ -256,11 +262,15 @@ class ChatService:
         output_tokens: int | None = None
         provider_duration_ms: int | None = None
         started = time.perf_counter()
+        cancelled = False
         async for delta in self._llm.generate_stream(
             llm_messages,
             system_prompt=system_prompt,
             model=model,
         ):
+            if is_cancelled is not None and await is_cancelled():
+                cancelled = True
+                break
             if delta.input_tokens is not None:
                 input_tokens = delta.input_tokens
             if delta.output_tokens is not None:
@@ -281,6 +291,27 @@ class ChatService:
             else int((time.perf_counter() - started) * 1000)
         )
         full_text = "".join(parts).strip()
+
+        if cancelled:
+            if full_text:
+                conversation.add_message(Message(role=Role.ASSISTANT, content=full_text))
+            await self._repository.save(conversation)
+            if full_text:
+                self._record_chat_trace(
+                    user_query=content,
+                    retrieved=retrieved,
+                    model_response=full_text,
+                    conversation_id=conversation.id,
+                    duration_ms=duration_ms,
+                    retrieval_duration_ms=retrieval_duration_ms,
+                    mode="stream",
+                    retrieval_backend=retrieval_backend,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                )
+            yield StreamCancelled(conversation_id=conversation.id)
+            return
+
         if not full_text:
             raise ValidationError("El modelo devolvió una respuesta vacía")
 

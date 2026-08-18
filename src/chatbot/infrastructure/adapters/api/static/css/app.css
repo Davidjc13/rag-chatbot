@@ -730,7 +730,8 @@ button.danger:hover:not(:disabled) {
   }
 
   .voice-btn,
-  .composer > button[type="submit"] {
+  .composer > button[type="submit"],
+  .composer > button[type="button"]#send-btn {
     grid-row: auto;
   }
 

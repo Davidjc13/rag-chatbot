@@ -141,7 +141,7 @@ export async function listModels() {
 
 /**
  * Consume SSE de POST /chat/stream.
- * handlers: { onMeta, onThinking, onToken, onDone, onError }
+ * handlers: { onMeta, onThinking, onToken, onDone, onCancelled, onError }
  */
 export async function streamChat({
   message,
@@ -149,49 +149,64 @@ export async function streamChat({
   retrievalBackend,
   model,
   handlers,
+  signal,
 }) {
-  const response = await fetch(`${API_BASE}/chat/stream`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-    body: JSON.stringify({
-      message,
-      conversation_id: conversationId || null,
-      retrieval_backend: retrievalBackend || "postgres",
-      model: model || null,
-    }),
-  });
+  let reader;
+  try {
+    const response = await fetch(`${API_BASE}/chat/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+      body: JSON.stringify({
+        message,
+        conversation_id: conversationId || null,
+        retrieval_backend: retrievalBackend || "postgres",
+        model: model || null,
+      }),
+      signal,
+    });
 
-  if (!response.ok || !response.body) {
-    let payload = {};
-    try {
-      payload = await response.json();
-    } catch {
-      /* ignore */
+    if (!response.ok || !response.body) {
+      let payload = {};
+      try {
+        payload = await response.json();
+      } catch {
+        /* ignore */
+      }
+      const error = new Error(payload.error || `Error HTTP ${response.status}`);
+      error.code = payload.code;
+      throw error;
     }
-    const error = new Error(payload.error || `Error HTTP ${response.status}`);
-    error.code = payload.code;
-    throw error;
-  }
 
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
+    reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+    while (true) {
+      if (signal?.aborted) {
+        await reader.cancel();
+        break;
+      }
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
 
-    let sep;
-    while ((sep = buffer.indexOf("\n\n")) !== -1) {
-      const raw = buffer.slice(0, sep);
-      buffer = buffer.slice(sep + 2);
-      dispatchSseBlock(raw, handlers);
+      let sep;
+      while ((sep = buffer.indexOf("\n\n")) !== -1) {
+        const raw = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        dispatchSseBlock(raw, handlers);
+      }
     }
-  }
 
-  if (buffer.trim()) {
-    dispatchSseBlock(buffer, handlers);
+    if (buffer.trim()) {
+      dispatchSseBlock(buffer, handlers);
+    }
+  } catch (err) {
+    if (err.name === "AbortError") {
+      if (handlers.onCancelled) handlers.onCancelled();
+      return;
+    }
+    throw err;
   }
 }
 
@@ -218,5 +233,6 @@ function dispatchSseBlock(raw, handlers) {
   else if (eventName === "thinking" && handlers.onThinking) handlers.onThinking(data);
   else if (eventName === "token" && handlers.onToken) handlers.onToken(data);
   else if (eventName === "done" && handlers.onDone) handlers.onDone(data);
+  else if (eventName === "cancelled" && handlers.onCancelled) handlers.onCancelled(data);
   else if (eventName === "error" && handlers.onError) handlers.onError(data);
 }
