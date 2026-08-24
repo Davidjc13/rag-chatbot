@@ -13,6 +13,8 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = None
     retrieval_backend: Literal["postgres", "neo4j"] = "postgres"
     model: str | None = Field(default=None, max_length=256)
+    mode: Literal["rag", "study"] = "rag"
+    document_id: str | None = Field(default=None, max_length=36)
 
 
 class MessageResponse(BaseModel):
@@ -56,6 +58,7 @@ class IngestionResponse(BaseModel):
     filename: str
     format: str
     chunk_count: int
+    purpose: str = "general"
 
 
 class DocumentSummaryResponse(BaseModel):
@@ -64,10 +67,68 @@ class DocumentSummaryResponse(BaseModel):
     format: str
     chunk_count: int
     created_at: datetime
+    purpose: str = "general"
 
 
 class DocumentListResponse(BaseModel):
     documents: list[DocumentSummaryResponse]
+
+
+class StudyProfileResponse(BaseModel):
+    document_id: str
+    status: str
+    summary: str = ""
+    key_concepts: list[str] = Field(default_factory=list)
+    error: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class StudySessionCreateRequest(BaseModel):
+    document_id: str = Field(..., min_length=1, max_length=36)
+    mode: Literal["chat", "quiz", "exam"] = "quiz"
+    question_count: int | None = Field(default=None, ge=1, le=20)
+
+
+class StudyQuestionResponse(BaseModel):
+    id: str
+    order: int
+    question: str
+    reference_answer: str | None = None
+    user_answer: str = ""
+    score: float | None = None
+    feedback: str = ""
+    evaluated_at: datetime | None = None
+
+
+class StudySessionResponse(BaseModel):
+    id: str
+    document_id: str
+    mode: str
+    status: str
+    score: float | None = None
+    question_count: int
+    questions: list[StudyQuestionResponse] = Field(default_factory=list)
+    created_at: datetime
+    finished_at: datetime | None = None
+
+
+class StudyAnswerRequest(BaseModel):
+    question_id: str = Field(..., min_length=1, max_length=36)
+    answer: str = Field(..., min_length=1, max_length=16_000)
+
+
+class StudyAnswerResponse(BaseModel):
+    score: float
+    max_score: float
+    feedback: str
+    missing_points: list[str] = Field(default_factory=list)
+    is_correct: bool
+
+
+class StudyFinishResponse(BaseModel):
+    session: StudySessionResponse
+    report: str
 
 
 class TranscriptionResponse(BaseModel):

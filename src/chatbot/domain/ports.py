@@ -13,6 +13,7 @@ from chatbot.domain.documents import (
     ParsedDocument,
     RetrievedChunk,
 )
+from chatbot.domain.study import StudyProfile, StudyQuestion, StudySession
 from chatbot.domain.entities import Conversation, Message
 from chatbot.domain.llm_stream import LLMDelta
 
@@ -166,8 +167,18 @@ class VectorStorePort(ABC):
         """Inserta o actualiza chunks con embedding."""
 
     @abstractmethod
-    async def search(self, query_embedding: list[float], *, top_k: int) -> list[RetrievedChunk]:
+    async def search(
+        self,
+        query_embedding: list[float],
+        *,
+        top_k: int,
+        document_id: str | None = None,
+    ) -> list[RetrievedChunk]:
         """Busca los chunks más similares al embedding de consulta."""
+
+    @abstractmethod
+    async def get_chunks_by_document(self, document_id: str) -> list[DocumentChunk]:
+        """Devuelve todos los chunks de un documento ordenados por índice."""
 
     @abstractmethod
     async def delete_by_document(self, document_id: str) -> int:
@@ -180,3 +191,19 @@ class VectorStorePort(ABC):
     @abstractmethod
     async def get_document(self, document_id: str) -> DocumentSummary | None:
         """Obtiene el resumen de un documento o None."""
+
+
+class StudyRepositoryPort(Protocol):
+    """Puerto de persistencia para perfiles y sesiones de estudio."""
+
+    async def upsert_profile(self, profile: StudyProfile) -> None: ...
+
+    async def get_profile(self, document_id: str) -> StudyProfile | None: ...
+
+    async def create_session(self, session: StudySession) -> None: ...
+
+    async def get_session(self, session_id: str) -> StudySession | None: ...
+
+    async def save_session(self, session: StudySession) -> None: ...
+
+    async def update_question(self, question: StudyQuestion) -> None: ...

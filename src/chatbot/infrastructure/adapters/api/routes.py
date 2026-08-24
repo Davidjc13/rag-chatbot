@@ -6,7 +6,7 @@ import json
 from collections.abc import AsyncIterator
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 
 from chatbot.application.services.chat_service import (
@@ -19,10 +19,13 @@ from chatbot.application.services.chat_service import (
 )
 from chatbot.application.services.eval_service import EvalService
 from chatbot.application.services.ingestion_service import IngestionService
+from chatbot.application.services.study_service import StudyService
 from chatbot.application.services.transcription_service import TranscriptionService
 from chatbot.core.env import Env
+from chatbot.domain.documents import DocumentPurpose
 from chatbot.domain.exceptions import ChatbotError
 from chatbot.domain.ports import LLMPort
+from chatbot.domain.study import StudySessionMode
 from chatbot.infrastructure.adapters.api.mime_validation import validate_upload
 from chatbot.infrastructure.adapters.api.schemas import (
     ChatRequest,
@@ -53,6 +56,13 @@ from chatbot.infrastructure.adapters.api.schemas import (
     IngestionResponse,
     MessageResponse,
     ModelsResponse,
+    StudyAnswerRequest,
+    StudyAnswerResponse,
+    StudyFinishResponse,
+    StudyProfileResponse,
+    StudyQuestionResponse,
+    StudySessionCreateRequest,
+    StudySessionResponse,
     TranscriptionResponse,
 )
 from evals.domain import EvalComparisonResult, EvalExperiment, EvalRunSummary, EvalSuite, EvalSuiteConfig
@@ -69,6 +79,10 @@ def _chat_service(request: Request) -> ChatService:
 
 def _ingestion_service(request: Request) -> IngestionService:
     return request.app.state.ingestion_service
+
+
+def _study_service(request: Request) -> StudyService:
+    return request.app.state.study_service
 
 
 def _eval_service(request: Request) -> EvalService:
@@ -124,6 +138,8 @@ async def chat(payload: ChatRequest, request: Request) -> ChatResponse:
         conversation_id=payload.conversation_id,
         retrieval_backend=payload.retrieval_backend,
         model=payload.model,
+        mode=payload.mode,
+        document_id=payload.document_id,
     )
     return ChatResponse(
         conversation_id=reply.conversation_id,
@@ -150,6 +166,8 @@ async def chat_stream(payload: ChatRequest, request: Request) -> StreamingRespon
                 conversation_id=payload.conversation_id,
                 retrieval_backend=payload.retrieval_backend,
                 model=payload.model,
+                mode=payload.mode,
+                document_id=payload.document_id,
                 is_cancelled=is_cancelled,
             ):
                 if isinstance(event, StreamMeta):
@@ -225,24 +243,39 @@ async def get_conversation(conversation_id: str, request: Request) -> Conversati
 async def ingest_document(
     request: Request,
     file: UploadFile = File(...),
+    purpose: str = Form(default="general"),
 ) -> IngestionResponse:
     service = _ingestion_service(request)
     data = await file.read()
     filename = file.filename or "upload.bin"
     validate_upload(filename=filename, content_type=file.content_type, data=data)
-    result = await service.ingest(filename=filename, data=data)
+    try:
+        doc_purpose = DocumentPurpose(purpose)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="purpose debe ser general o notes") from exc
+    result = await service.ingest(filename=filename, data=data, purpose=doc_purpose)
     return IngestionResponse(
         document_id=result.document_id,
         filename=result.filename,
         format=result.format.value,
         chunk_count=result.chunk_count,
+        purpose=result.purpose.value,
     )
 
 
 @router.get("/documents", response_model=DocumentListResponse, tags=["documents"])
-async def list_documents(request: Request) -> DocumentListResponse:
+async def list_documents(
+    request: Request,
+    purpose: str | None = Query(default=None),
+) -> DocumentListResponse:
     service = _ingestion_service(request)
-    documents = await service.list_documents()
+    doc_purpose: DocumentPurpose | None = None
+    if purpose:
+        try:
+            doc_purpose = DocumentPurpose(purpose)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="purpose inválido") from exc
+    documents = await service.list_documents(purpose=doc_purpose)
     return DocumentListResponse(
         documents=[
             DocumentSummaryResponse(
@@ -251,6 +284,7 @@ async def list_documents(request: Request) -> DocumentListResponse:
                 format=doc.format.value,
                 chunk_count=doc.chunk_count,
                 created_at=doc.created_at,
+                purpose=doc.purpose.value,
             )
             for doc in documents
         ]
@@ -261,6 +295,160 @@ async def list_documents(request: Request) -> DocumentListResponse:
 async def delete_document(document_id: str, request: Request) -> None:
     service = _ingestion_service(request)
     await service.delete_document(document_id)
+
+
+def _study_profile_response(profile) -> StudyProfileResponse:
+    return StudyProfileResponse(
+        document_id=profile.document_id,
+        status=profile.status.value,
+        summary=profile.summary,
+        key_concepts=list(profile.key_concepts),
+        error=profile.error,
+        created_at=profile.created_at,
+        updated_at=profile.updated_at,
+    )
+
+
+def _study_session_response(session, *, reveal_answers: bool = False) -> StudySessionResponse:
+    questions: list[StudyQuestionResponse] = []
+    for question in session.questions:
+        show_reference = reveal_answers or session.mode.value == "quiz"
+        if session.status.value == "completed":
+            show_reference = True
+        questions.append(
+            StudyQuestionResponse(
+                id=question.id,
+                order=question.order,
+                question=question.question,
+                reference_answer=question.reference_answer if show_reference else None,
+                user_answer=question.user_answer,
+                score=question.score,
+                feedback=question.feedback if reveal_answers or session.mode.value == "quiz" else "",
+                evaluated_at=question.evaluated_at,
+            )
+        )
+    return StudySessionResponse(
+        id=session.id,
+        document_id=session.document_id,
+        mode=session.mode.value,
+        status=session.status.value,
+        score=session.score,
+        question_count=session.question_count,
+        questions=questions,
+        created_at=session.created_at,
+        finished_at=session.finished_at,
+    )
+
+
+@router.get(
+    "/documents/{document_id}/study",
+    response_model=StudyProfileResponse,
+    tags=["study"],
+)
+async def get_document_study_profile(
+    document_id: str,
+    request: Request,
+) -> StudyProfileResponse:
+    service = _study_service(request)
+    profile = await service.get_profile(document_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Perfil de estudio no encontrado")
+    return _study_profile_response(profile)
+
+
+@router.post(
+    "/documents/{document_id}/study/summary",
+    response_model=StudyProfileResponse,
+    tags=["study"],
+)
+async def regenerate_study_summary(
+    document_id: str,
+    request: Request,
+) -> StudyProfileResponse:
+    service = _study_service(request)
+    profile = await service.regenerate_summary(document_id)
+    return _study_profile_response(profile)
+
+
+@router.post("/study/sessions", response_model=StudySessionResponse, tags=["study"])
+async def create_study_session(
+    payload: StudySessionCreateRequest,
+    request: Request,
+) -> StudySessionResponse:
+    service = _study_service(request)
+    session = await service.create_session(
+        document_id=payload.document_id,
+        mode=StudySessionMode(payload.mode),
+        question_count=payload.question_count,
+    )
+    return _study_session_response(session)
+
+
+@router.get(
+    "/study/sessions/{session_id}",
+    response_model=StudySessionResponse,
+    tags=["study"],
+)
+async def get_study_session(session_id: str, request: Request) -> StudySessionResponse:
+    service = _study_service(request)
+    session = await service.get_session(session_id)
+    reveal = session.status.value == "completed"
+    return _study_session_response(session, reveal_answers=reveal)
+
+
+@router.post(
+    "/study/sessions/{session_id}/answers",
+    response_model=StudyAnswerResponse,
+    tags=["study"],
+)
+async def submit_study_answer(
+    session_id: str,
+    payload: StudyAnswerRequest,
+    request: Request,
+) -> StudyAnswerResponse:
+    service = _study_service(request)
+    evaluation = await service.submit_answer(
+        session_id=session_id,
+        question_id=payload.question_id,
+        answer=payload.answer,
+    )
+    return StudyAnswerResponse(
+        score=evaluation.score,
+        max_score=evaluation.max_score,
+        feedback=evaluation.feedback,
+        missing_points=list(evaluation.missing_points),
+        is_correct=evaluation.is_correct,
+    )
+
+
+@router.post(
+    "/study/sessions/{session_id}/finish",
+    response_model=StudyFinishResponse,
+    tags=["study"],
+)
+async def finish_study_session(
+    session_id: str,
+    request: Request,
+) -> StudyFinishResponse:
+    service = _study_service(request)
+    session = await service.finish_session(session_id)
+    evaluated = [q for q in session.questions if q.score is not None]
+    lines = [
+        f"Nota final: {session.score}/10",
+        f"Preguntas respondidas: {len(evaluated)}/{session.question_count}",
+        "",
+    ]
+    for question in session.questions:
+        if question.score is None:
+            continue
+        lines.append(f"P{question.order} ({question.score}/10): {question.question}")
+        lines.append(f"  Feedback: {question.feedback}")
+        lines.append("")
+    report = "\n".join(lines).strip()
+    return StudyFinishResponse(
+        session=_study_session_response(session, reveal_answers=True),
+        report=report,
+    )
 
 
 def _suite_config_from_request(payload: EvalSuiteConfigRequest) -> EvalSuiteConfig:

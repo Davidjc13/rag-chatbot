@@ -19,6 +19,7 @@
         <nav class="nav" aria-label="Principal">
           <a href="/">Chat</a>
           <a href="/documents" aria-current="page">Documentos</a>
+          <a href="/apuntes">Apuntes</a>
           <a href="/evals">Evaluaciones</a>
         </nav>
       </header>
@@ -27,6 +28,17 @@
         <div class="docs-toolbar">
           <h2>Documentos indexados</h2>
           <form id="upload-form" class="upload-row">
+            <fieldset class="purpose-picker">
+              <legend>Tipo</legend>
+              <label>
+                <input type="radio" name="purpose" value="general" checked />
+                General
+              </label>
+              <label>
+                <input type="radio" name="purpose" value="notes" />
+                Apuntes
+              </label>
+            </fieldset>
             <input
               id="file-input"
               type="file"
@@ -43,6 +55,7 @@
           <thead>
             <tr>
               <th>Nombre</th>
+              <th>Tipo</th>
               <th>Formato</th>
               <th>Chunks</th>
               <th>Fecha</th>

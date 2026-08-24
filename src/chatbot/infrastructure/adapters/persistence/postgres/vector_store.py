@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from chatbot.domain.documents import (
     DocumentChunk,
     DocumentFormat,
+    DocumentPurpose,
     DocumentSummary,
     RetrievedChunk,
 )
@@ -33,10 +34,17 @@ class PostgresVectorStore:
 
                 filename = str(chunk.metadata.get("filename", "unknown"))
                 fmt_raw = str(chunk.metadata.get("format", DocumentFormat.PDF.value))
+                purpose_raw = str(
+                    chunk.metadata.get("purpose", DocumentPurpose.GENERAL.value)
+                )
                 try:
                     fmt = DocumentFormat(fmt_raw)
                 except ValueError:
                     fmt = DocumentFormat.PDF
+                try:
+                    purpose = DocumentPurpose(purpose_raw)
+                except ValueError:
+                    purpose = DocumentPurpose.GENERAL
 
                 doc = await session.get(DocumentModel, chunk.document_id)
                 if doc is None:
@@ -45,6 +53,7 @@ class PostgresVectorStore:
                             id=chunk.document_id,
                             filename=filename,
                             format=fmt.value,
+                            purpose=purpose.value,
                             chunk_count=0,
                             created_at=datetime.now(UTC),
                         )
@@ -52,6 +61,7 @@ class PostgresVectorStore:
                 else:
                     doc.filename = filename or doc.filename
                     doc.format = fmt.value
+                    doc.purpose = purpose.value
 
                 existing = await session.get(ChunkModel, chunk.id)
                 if existing is None:
@@ -90,16 +100,16 @@ class PostgresVectorStore:
         query_embedding: list[float],
         *,
         top_k: int,
+        document_id: str | None = None,
     ) -> list[RetrievedChunk]:
         if top_k <= 0:
             return []
         async with self._session_factory() as session:
             distance = ChunkModel.embedding.cosine_distance(query_embedding)
-            result = await session.execute(
-                select(ChunkModel, distance.label("distance"))
-                .order_by(distance)
-                .limit(top_k)
-            )
+            stmt = select(ChunkModel, distance.label("distance")).order_by(distance).limit(top_k)
+            if document_id:
+                stmt = stmt.where(ChunkModel.document_id == document_id)
+            result = await session.execute(stmt)
             rows = result.all()
             retrieved: list[RetrievedChunk] = []
             for chunk_row, dist in rows:
@@ -131,11 +141,35 @@ class PostgresVectorStore:
             await session.commit()
             return int(result.rowcount or 0)
 
-    async def list_documents(self) -> list[DocumentSummary]:
+    async def get_chunks_by_document(self, document_id: str) -> list[DocumentChunk]:
         async with self._session_factory() as session:
             result = await session.execute(
-                select(DocumentModel).order_by(DocumentModel.created_at.desc())
+                select(ChunkModel).where(ChunkModel.document_id == document_id)
             )
+            rows = result.scalars().all()
+            chunks = [
+                DocumentChunk(
+                    id=row.id,
+                    document_id=row.document_id,
+                    content=row.content,
+                    metadata=dict(row.chunk_metadata or {}),
+                    embedding=list(row.embedding) if row.embedding is not None else None,
+                )
+                for row in rows
+            ]
+            chunks.sort(key=lambda c: int(c.metadata.get("chunk_index", 0)))
+            return chunks
+
+    async def list_documents(
+        self,
+        *,
+        purpose: DocumentPurpose | None = None,
+    ) -> list[DocumentSummary]:
+        async with self._session_factory() as session:
+            stmt = select(DocumentModel).order_by(DocumentModel.created_at.desc())
+            if purpose is not None:
+                stmt = stmt.where(DocumentModel.purpose == purpose.value)
+            result = await session.execute(stmt)
             docs = result.scalars().all()
             return [
                 DocumentSummary(
@@ -144,6 +178,9 @@ class PostgresVectorStore:
                     format=DocumentFormat(d.format),
                     chunk_count=d.chunk_count,
                     created_at=d.created_at,
+                    purpose=DocumentPurpose(d.purpose)
+                    if d.purpose in DocumentPurpose._value2member_map_
+                    else DocumentPurpose.GENERAL,
                 )
                 for d in docs
             ]
@@ -159,4 +196,7 @@ class PostgresVectorStore:
                 format=DocumentFormat(d.format),
                 chunk_count=d.chunk_count,
                 created_at=d.created_at,
+                purpose=DocumentPurpose(d.purpose)
+                if d.purpose in DocumentPurpose._value2member_map_
+                else DocumentPurpose.GENERAL,
             )

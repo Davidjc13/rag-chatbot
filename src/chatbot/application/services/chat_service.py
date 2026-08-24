@@ -22,7 +22,11 @@ from chatbot.domain.ports import (
     TracingPort,
     VectorStorePort,
 )
-from chatbot.domain.prompts import PROMPT_SYSTEM, PROMPT_USER_MESSAGE
+from chatbot.domain.prompts import (
+    PROMPT_STUDY_TUTOR_SYSTEM,
+    PROMPT_SYSTEM,
+    PROMPT_USER_MESSAGE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +75,7 @@ _FALLBACK_SYSTEM = (
     "da la respuesta final al usuario.\n\n{context}"
 )
 _FALLBACK_USER = "{question}"
+_STUDY_TOP_K = 8
 
 
 class ChatService:
@@ -107,6 +112,8 @@ class ChatService:
         conversation_id: str | None = None,
         retrieval_backend: str | None = None,
         model: str | None = None,
+        mode: Literal["rag", "study"] = "rag",
+        document_id: str | None = None,
     ) -> ChatReply:
         content = (user_message or "").strip()
         if not content:
@@ -123,9 +130,18 @@ class ChatService:
         retrieved, retrieval_duration_ms = await self._retrieve_timed(
             content,
             retrieval_backend=retrieval_backend,
+            document_id=document_id if mode == "study" else None,
+            top_k=_STUDY_TOP_K if mode == "study" else self._rag_top_k,
         )
-        if self._guardrails is not None and not self._guardrails.is_in_scope(
-            [item.score for item in retrieved]
+        if mode == "study" and document_id and not retrieved and self._vector_store:
+            chunks = await self._vector_store.get_chunks_by_document(document_id)
+            retrieved = [
+                RetrievedChunk(chunk=chunk, score=1.0) for chunk in chunks[:_STUDY_TOP_K]
+            ]
+        if self._guardrails is not None and not self._is_in_scope(
+            retrieved,
+            mode=mode,
+            document_id=document_id,
         ):
             refusal = self._guardrails.out_of_scope_message
             assistant_message = Message(role=Role.ASSISTANT, content=refusal)
@@ -147,7 +163,9 @@ class ChatService:
                 model=selected_model,
             )
 
-        system_prompt, llm_messages = await self._build_llm_payload(conversation, retrieved)
+        system_prompt, llm_messages = await self._build_llm_payload(
+            conversation, retrieved, mode=mode
+        )
 
         logger.info(
             "Generando respuesta",
@@ -201,6 +219,8 @@ class ChatService:
         conversation_id: str | None = None,
         retrieval_backend: str | None = None,
         model: str | None = None,
+        mode: Literal["rag", "study"] = "rag",
+        document_id: str | None = None,
         is_cancelled: Callable[[], Awaitable[bool]] | None = None,
     ) -> AsyncIterator[StreamEvent]:
         content = (user_message or "").strip()
@@ -218,6 +238,8 @@ class ChatService:
         retrieved, retrieval_duration_ms = await self._retrieve_timed(
             content,
             retrieval_backend=retrieval_backend,
+            document_id=document_id if mode == "study" else None,
+            top_k=_STUDY_TOP_K if mode == "study" else self._rag_top_k,
         )
         sources = self._sources_payload(retrieved)
         yield StreamMeta(
@@ -226,8 +248,10 @@ class ChatService:
             sources=sources,
         )
 
-        if self._guardrails is not None and not self._guardrails.is_in_scope(
-            [item.score for item in retrieved]
+        if self._guardrails is not None and not self._is_in_scope(
+            retrieved,
+            mode=mode,
+            document_id=document_id,
         ):
             refusal = self._guardrails.out_of_scope_message
             yield StreamToken(content=refusal)
@@ -246,7 +270,9 @@ class ChatService:
             yield StreamDone(conversation_id=conversation.id)
             return
 
-        system_prompt, llm_messages = await self._build_llm_payload(conversation, retrieved)
+        system_prompt, llm_messages = await self._build_llm_payload(
+            conversation, retrieved, mode=mode
+        )
         logger.info(
             "Generando respuesta (stream)",
             extra={
@@ -363,43 +389,79 @@ class ChatService:
         query: str,
         *,
         retrieval_backend: str | None = None,
+        document_id: str | None = None,
+        top_k: int | None = None,
     ) -> list[RetrievedChunk]:
         if self._embeddings is None or self._vector_store is None:
             return []
         vectors = await self._embeddings.embed([query])
         if not vectors:
             return []
+        effective_top_k = top_k if top_k is not None else self._rag_top_k
         search_backend = getattr(self._vector_store, "search_backend", None)
         if callable(search_backend) and retrieval_backend:
             return await search_backend(
                 retrieval_backend,
                 vectors[0],
-                top_k=self._rag_top_k,
+                top_k=effective_top_k,
+                document_id=document_id,
             )
-        return await self._vector_store.search(vectors[0], top_k=self._rag_top_k)
+        return await self._vector_store.search(
+            vectors[0],
+            top_k=effective_top_k,
+            document_id=document_id,
+        )
 
     async def _retrieve_timed(
         self,
         query: str,
         *,
         retrieval_backend: str | None = None,
+        document_id: str | None = None,
+        top_k: int | None = None,
     ) -> tuple[list[RetrievedChunk], int]:
         started = time.perf_counter()
-        retrieved = await self._retrieve(query, retrieval_backend=retrieval_backend)
+        retrieved = await self._retrieve(
+            query,
+            retrieval_backend=retrieval_backend,
+            document_id=document_id,
+            top_k=top_k,
+        )
         duration_ms = int((time.perf_counter() - started) * 1000)
         return retrieved, duration_ms
+
+    def _is_in_scope(
+        self,
+        retrieved: list[RetrievedChunk],
+        *,
+        mode: Literal["rag", "study"],
+        document_id: str | None,
+    ) -> bool:
+        if mode == "study" and document_id:
+            return bool(retrieved) or self._guardrails is None
+        if self._guardrails is None:
+            return True
+        return self._guardrails.is_in_scope([item.score for item in retrieved])
 
     async def _build_llm_payload(
         self,
         conversation: Conversation,
         retrieved: list[RetrievedChunk],
+        *,
+        mode: Literal["rag", "study"] = "rag",
     ) -> tuple[str, list[Message]]:
         context = self._build_context(retrieved)
-        system_template = await self._prompts.get(PROMPT_SYSTEM) or _FALLBACK_SYSTEM
+        if mode == "study":
+            system_template = (
+                await self._prompts.get(PROMPT_STUDY_TUTOR_SYSTEM)
+                or _FALLBACK_SYSTEM
+            )
+        else:
+            system_template = await self._prompts.get(PROMPT_SYSTEM) or _FALLBACK_SYSTEM
         user_template = await self._prompts.get(PROMPT_USER_MESSAGE) or _FALLBACK_USER
 
         system_prompt = system_template.replace("{context}", context)
-        if "razonamiento breve" not in system_prompt.lower():
+        if mode != "study" and "razonamiento breve" not in system_prompt.lower():
             system_prompt = (
                 system_prompt.rstrip()
                 + "\n\nSi razonas internamente antes de responder, "

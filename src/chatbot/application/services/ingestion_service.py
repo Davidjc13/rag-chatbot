@@ -6,7 +6,7 @@ import logging
 from typing import Protocol
 
 from chatbot.application.services.table_aware_chunker import TableAwareChunker
-from chatbot.domain.documents import DocumentSummary, IngestionResult
+from chatbot.domain.documents import DocumentPurpose, DocumentSummary, IngestionResult
 from chatbot.domain.exceptions import DocumentNotFoundError, ValidationError
 from chatbot.domain.ports import DocumentParserPort, EmbeddingPort, VectorStorePort
 
@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 
 class DocumentParserResolver(Protocol):
     def get_parser(self, filename: str) -> DocumentParserPort: ...
+
+
+class StudyProfileGenerator(Protocol):
+    async def generate_profile(self, document_id: str) -> object: ...
 
 
 class IngestionService:
@@ -27,13 +31,21 @@ class IngestionService:
         chunker: TableAwareChunker,
         embeddings: EmbeddingPort,
         vector_store: VectorStorePort,
+        study_service: StudyProfileGenerator | None = None,
     ) -> None:
         self._parser_factory = parser_factory
         self._chunker = chunker
         self._embeddings = embeddings
         self._vector_store = vector_store
+        self._study_service = study_service
 
-    async def ingest(self, *, filename: str, data: bytes) -> IngestionResult:
+    async def ingest(
+        self,
+        *,
+        filename: str,
+        data: bytes,
+        purpose: DocumentPurpose = DocumentPurpose.GENERAL,
+    ) -> IngestionResult:
         name = (filename or "").strip()
         if not name:
             raise ValidationError("El nombre del fichero es obligatorio")
@@ -46,6 +58,9 @@ class IngestionService:
         if not chunks:
             raise ValidationError("No se generaron chunks a partir del documento")
 
+        for chunk in chunks:
+            chunk.metadata["purpose"] = purpose.value
+
         vectors = await self._embeddings.embed([c.content for c in chunks])
         for chunk, vector in zip(chunks, vectors, strict=True):
             chunk.embedding = vector
@@ -57,18 +72,28 @@ class IngestionService:
                 "document_id": parsed.id,
                 "document_filename": name,
                 "chunk_count": len(chunks),
+                "purpose": purpose.value,
                 "embedding_model": self._embeddings.model_name,
             },
         )
+
+        if purpose == DocumentPurpose.NOTES and self._study_service is not None:
+            await self._study_service.generate_profile(parsed.id)
+
         return IngestionResult(
             document_id=parsed.id,
             filename=name,
             format=parsed.format,
             chunk_count=len(chunks),
+            purpose=purpose,
         )
 
-    async def list_documents(self) -> list[DocumentSummary]:
-        return await self._vector_store.list_documents()
+    async def list_documents(
+        self,
+        *,
+        purpose: DocumentPurpose | None = None,
+    ) -> list[DocumentSummary]:
+        return await self._vector_store.list_documents(purpose=purpose)
 
     async def delete_document(self, document_id: str) -> None:
         existing = await self._vector_store.get_document(document_id)

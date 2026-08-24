@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from chatbot.domain.documents import DocumentChunk, DocumentSummary, RetrievedChunk
+from chatbot.domain.documents import (
+    DocumentChunk,
+    DocumentPurpose,
+    DocumentSummary,
+    RetrievedChunk,
+)
 from chatbot.domain.exceptions import ConfigurationError
 from chatbot.domain.ports import VectorStorePort
 from chatbot.domain.retrieval import (
@@ -33,11 +38,13 @@ class RoutedVectorStore(VectorStorePort):
         query_embedding: list[float],
         *,
         top_k: int,
+        document_id: str | None = None,
     ) -> list[RetrievedChunk]:
         return await self.search_backend(
             self._default_backend,
             query_embedding,
             top_k=top_k,
+            document_id=document_id,
         )
 
     async def search_backend(
@@ -46,15 +53,23 @@ class RoutedVectorStore(VectorStorePort):
         query_embedding: list[float],
         *,
         top_k: int,
+        document_id: str | None = None,
     ) -> list[RetrievedChunk]:
         normalized = (backend or self._default_backend).lower()
         if normalized == RETRIEVAL_BACKEND_POSTGRES:
-            return await self._primary.search(query_embedding, top_k=top_k)
+            return await self._primary.search(
+                query_embedding, top_k=top_k, document_id=document_id
+            )
         if normalized == RETRIEVAL_BACKEND_NEO4J:
             if self._neo4j is None:
                 raise ConfigurationError("El flujo Neo4j no está disponible")
-            return await self._neo4j.search(query_embedding, top_k=top_k)
+            return await self._neo4j.search(
+                query_embedding, top_k=top_k, document_id=document_id
+            )
         raise ConfigurationError(f"Backend de retrieval no soportado: {backend}")
+
+    async def get_chunks_by_document(self, document_id: str) -> list[DocumentChunk]:
+        return await self._primary.get_chunks_by_document(document_id)
 
     async def delete_by_document(self, document_id: str) -> int:
         deleted = await self._primary.delete_by_document(document_id)
@@ -62,8 +77,12 @@ class RoutedVectorStore(VectorStorePort):
             await self._neo4j.delete_by_document(document_id)
         return deleted
 
-    async def list_documents(self) -> list[DocumentSummary]:
-        return await self._primary.list_documents()
+    async def list_documents(
+        self,
+        *,
+        purpose: DocumentPurpose | None = None,
+    ) -> list[DocumentSummary]:
+        return await self._primary.list_documents(purpose=purpose)
 
     async def get_document(self, document_id: str) -> DocumentSummary | None:
         return await self._primary.get_document(document_id)

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Apuntes — RAG Chatbot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,650&family=Source+Sans+3:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/css/app.css" />
+  </head>
+  <body>
+    <div class="app-shell app-shell--chat">
+      <header class="topbar">
+        <h1 class="brand">RAG Chatbot</h1>
+        <nav class="nav" aria-label="Principal">
+          <a href="/">Chat</a>
+          <a href="/documents">Documentos</a>
+          <a href="/apuntes" aria-current="page">Apuntes</a>
+          <a href="/evals">Evaluaciones</a>
+        </nav>
+      </header>
+
+      <div class="chat-layout apuntes-layout">
+        <aside class="conversations-panel" aria-label="Apuntes indexados">
+          <div class="conversations-header">
+            <h2>Apuntes</h2>
+          </div>
+          <p id="notes-empty" class="conversations-empty">
+            No hay apuntes. Sube un documento marcándolo como Apuntes.
+          </p>
+          <ul id="notes-list" class="conversations-list"></ul>
+        </aside>
+
+        <main class="panel apuntes-main">
+          <div id="study-placeholder" class="empty-hint">
+            <strong>Modo estudio</strong>
+            Selecciona un documento de apuntes para ver el resumen, repasar o hacer test/examen.
+          </div>
+
+          <div id="study-overview" class="study-overview" hidden>
+            <header class="study-header">
+              <h2 id="study-title"></h2>
+              <span id="study-status" class="meta-pill"></span>
+            </header>
+            <section id="study-summary" class="study-summary"></section>
+            <ul id="study-concepts" class="study-concepts"></ul>
+            <div class="study-actions">
+              <button type="button" id="btn-repaso" class="secondary">Repasar</button>
+              <button type="button" id="btn-test">Test</button>
+              <button type="button" id="btn-exam" class="secondary">Examen</button>
+              <button type="button" id="btn-regen" class="secondary compact">Regenerar resumen</button>
+            </div>
+          </div>
+
+          <div id="study-chat" class="study-chat" hidden>
+            <div class="study-chat-header">
+              <h3>Repaso libre</h3>
+              <button type="button" id="btn-back-overview" class="secondary compact">Volver</button>
+            </div>
+            <div id="study-chat-log" class="chat-log study-chat-log"></div>
+            <form id="study-chat-form" class="composer study-composer">
+              <textarea
+                id="study-message-input"
+                rows="2"
+                maxlength="16000"
+                placeholder="Pregunta sobre los apuntes…"
+                required
+              ></textarea>
+              <button type="submit">Enviar</button>
+            </form>
+          </div>
+
+          <div id="study-quiz" class="study-quiz" hidden>
+            <div class="study-quiz-header">
+              <h3 id="quiz-title">Test</h3>
+              <span id="quiz-progress" class="meta-pill"></span>
+              <button type="button" id="btn-back-quiz" class="secondary compact">Volver</button>
+            </div>
+            <div id="quiz-question" class="quiz-question"></div>
+            <textarea id="quiz-answer" rows="4" placeholder="Escribe tu respuesta…"></textarea>
+            <div class="quiz-actions">
+              <button type="button" id="btn-submit-answer">Enviar respuesta</button>
+              <button type="button" id="btn-finish-exam" class="secondary" hidden>
+                Finalizar examen
+              </button>
+            </div>
+            <div id="quiz-feedback" class="quiz-feedback" hidden></div>
+            <div id="quiz-report" class="quiz-report" hidden></div>
+          </div>
+
+          <p id="status" class="status-line" role="status"></p>
+        </main>
+      </div>
+    </div>
+    <script type="module" src="/static/js/apuntes.js"></script>
+  </body>
+</html>

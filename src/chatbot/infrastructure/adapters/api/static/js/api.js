@@ -18,8 +18,9 @@ export async function apiJson(path, options = {}) {
   return data;
 }
 
-export async function listDocuments() {
-  return apiJson("/documents");
+export async function listDocuments(purpose = null) {
+  const query = purpose ? `?purpose=${encodeURIComponent(purpose)}` : "";
+  return apiJson(`/documents${query}`);
 }
 
 export async function deleteDocument(documentId) {
@@ -28,10 +29,51 @@ export async function deleteDocument(documentId) {
   });
 }
 
-export async function uploadDocument(file) {
+export async function uploadDocument(file, { purpose = "general" } = {}) {
   const body = new FormData();
   body.append("file", file, file.name);
+  body.append("purpose", purpose);
   return apiJson("/documents", { method: "POST", body });
+}
+
+export async function getStudyProfile(documentId) {
+  return apiJson(`/documents/${encodeURIComponent(documentId)}/study`);
+}
+
+export async function regenerateStudySummary(documentId) {
+  return apiJson(`/documents/${encodeURIComponent(documentId)}/study/summary`, {
+    method: "POST",
+  });
+}
+
+export async function createStudySession({ documentId, mode, questionCount = null }) {
+  return apiJson("/study/sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      document_id: documentId,
+      mode,
+      question_count: questionCount,
+    }),
+  });
+}
+
+export async function getStudySession(sessionId) {
+  return apiJson(`/study/sessions/${encodeURIComponent(sessionId)}`);
+}
+
+export async function submitStudyAnswer(sessionId, questionId, answer) {
+  return apiJson(`/study/sessions/${encodeURIComponent(sessionId)}/answers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question_id: questionId, answer }),
+  });
+}
+
+export async function finishStudySession(sessionId) {
+  return apiJson(`/study/sessions/${encodeURIComponent(sessionId)}/finish`, {
+    method: "POST",
+  });
 }
 
 export async function transcribeAudio(file) {
@@ -148,6 +190,8 @@ export async function streamChat({
   conversationId,
   retrievalBackend,
   model,
+  mode = "rag",
+  documentId = null,
   handlers,
   signal,
 }) {
@@ -161,6 +205,8 @@ export async function streamChat({
         conversation_id: conversationId || null,
         retrieval_backend: retrievalBackend || "postgres",
         model: model || null,
+        mode: mode || "rag",
+        document_id: documentId || null,
       }),
       signal,
     });

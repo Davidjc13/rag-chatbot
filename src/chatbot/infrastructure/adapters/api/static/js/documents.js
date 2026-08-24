@@ -30,7 +30,7 @@ function renderRows(documents) {
   tbody.innerHTML = "";
   if (!documents.length) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td colspan="5" style="color:var(--ink-muted)">No hay documentos indexados.</td>`;
+    tr.innerHTML = `<td colspan="6" style="color:var(--ink-muted)">No hay documentos indexados.</td>`;
     tbody.appendChild(tr);
     return;
   }
@@ -39,6 +39,7 @@ function renderRows(documents) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${escapeHtml(doc.filename)}</td>
+      <td><span class="meta-pill">${escapeHtml(doc.purpose === "notes" ? "Apuntes" : "General")}</span></td>
       <td><span class="meta-pill">${escapeHtml(doc.format)}</span></td>
       <td>${doc.chunk_count}</td>
       <td>${escapeHtml(formatDate(doc.created_at))}</td>
@@ -99,10 +100,12 @@ form.addEventListener("submit", async (event) => {
   }
 
   uploadBtn.disabled = true;
+  const purpose = form.querySelector('input[name="purpose"]:checked')?.value || "general";
   setStatus(`Subiendo ${file.name}…`);
   try {
-    const result = await uploadDocument(file);
-    setStatus(`Ingerido: ${result.filename} (${result.chunk_count} chunks)`);
+    const result = await uploadDocument(file, { purpose });
+    const tipo = purpose === "notes" ? " (Apuntes)" : "";
+    setStatus(`Ingerido: ${result.filename}${tipo} (${result.chunk_count} chunks)`);
     fileInput.value = "";
     await refresh();
   } catch (err) {

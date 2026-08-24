@@ -12,6 +12,7 @@ from neo4j import AsyncDriver
 from chatbot.domain.documents import (
     DocumentChunk,
     DocumentFormat,
+    DocumentPurpose,
     DocumentSummary,
     RetrievedChunk,
 )
@@ -81,10 +82,17 @@ class Neo4jVectorStore:
 
                 filename = str(chunk.metadata.get("filename", "unknown"))
                 fmt_raw = str(chunk.metadata.get("format", DocumentFormat.PDF.value))
+                purpose_raw = str(
+                    chunk.metadata.get("purpose", DocumentPurpose.GENERAL.value)
+                )
                 try:
                     fmt = DocumentFormat(fmt_raw)
                 except ValueError:
                     fmt = DocumentFormat.PDF
+                try:
+                    purpose = DocumentPurpose(purpose_raw)
+                except ValueError:
+                    purpose = DocumentPurpose.GENERAL
 
                 metadata_json = json.dumps(chunk.metadata, ensure_ascii=False)
                 await session.run(
@@ -93,11 +101,13 @@ class Neo4jVectorStore:
                     ON CREATE SET
                       d.filename = $filename,
                       d.format = $format,
+                      d.purpose = $purpose,
                       d.created_at = $created_at,
                       d.chunk_count = 0
                     SET
                       d.filename = $filename,
-                      d.format = $format
+                      d.format = $format,
+                      d.purpose = $purpose
                     MERGE (c:Chunk {id: $chunk_id})
                     SET
                       c.document_id = $document_id,
@@ -111,6 +121,7 @@ class Neo4jVectorStore:
                     document_id=chunk.document_id,
                     filename=filename,
                     format=fmt.value,
+                    purpose=purpose.value,
                     created_at=chunk.metadata.get("document_created_at")
                     or datetime.now(UTC).isoformat(),
                     chunk_id=chunk.id,
@@ -127,10 +138,12 @@ class Neo4jVectorStore:
         query_embedding: list[float],
         *,
         top_k: int,
+        document_id: str | None = None,
     ) -> list[RetrievedChunk]:
         if top_k <= 0:
             return []
 
+        fetch_k = top_k * 5 if document_id else top_k
         async with self._driver.session(database=self._database) as session:
             result = await session.run(
                 """
@@ -145,13 +158,15 @@ class Neo4jVectorStore:
                 ORDER BY score DESC
                 """,
                 index_name=self._vector_index_name,
-                top_k=top_k,
+                top_k=fetch_k,
                 query_embedding=query_embedding,
             )
             rows = await result.data()
 
         retrieved: list[RetrievedChunk] = []
         for row in rows:
+            if document_id and str(row["document_id"]) != document_id:
+                continue
             metadata = self._load_metadata(row.get("metadata_json"))
             retrieved.append(
                 RetrievedChunk(
@@ -164,7 +179,32 @@ class Neo4jVectorStore:
                     score=float(row["score"]),
                 )
             )
+            if len(retrieved) >= top_k:
+                break
         return retrieved
+
+    async def get_chunks_by_document(self, document_id: str) -> list[DocumentChunk]:
+        async with self._driver.session(database=self._database) as session:
+            result = await session.run(
+                """
+                MATCH (c:Chunk {document_id: $document_id})
+                RETURN c.id AS id, c.document_id AS document_id, c.content AS content,
+                       c.metadata_json AS metadata_json
+                """,
+                document_id=document_id,
+            )
+            rows = await result.data()
+        chunks = [
+            DocumentChunk(
+                id=str(row["id"]),
+                document_id=str(row["document_id"]),
+                content=str(row["content"]),
+                metadata=self._load_metadata(row.get("metadata_json")),
+            )
+            for row in rows
+        ]
+        chunks.sort(key=lambda c: int(c.metadata.get("chunk_index", 0)))
+        return chunks
 
     async def delete_by_document(self, document_id: str) -> int:
         async with self._driver.session(database=self._database) as session:
@@ -181,16 +221,33 @@ class Neo4jVectorStore:
             row = await result.single()
             return 0 if row is None else int(row["chunk_count"])
 
-    async def list_documents(self) -> list[DocumentSummary]:
+    async def list_documents(
+        self,
+        *,
+        purpose: DocumentPurpose | None = None,
+    ) -> list[DocumentSummary]:
         async with self._driver.session(database=self._database) as session:
-            result = await session.run(
-                """
-                MATCH (d:Document)
-                RETURN d.id AS id, d.filename AS filename, d.format AS format,
-                       d.chunk_count AS chunk_count, d.created_at AS created_at
-                ORDER BY d.created_at DESC
-                """
-            )
+            if purpose is None:
+                result = await session.run(
+                    """
+                    MATCH (d:Document)
+                    RETURN d.id AS id, d.filename AS filename, d.format AS format,
+                           d.purpose AS purpose, d.chunk_count AS chunk_count,
+                           d.created_at AS created_at
+                    ORDER BY d.created_at DESC
+                    """
+                )
+            else:
+                result = await session.run(
+                    """
+                    MATCH (d:Document {purpose: $purpose})
+                    RETURN d.id AS id, d.filename AS filename, d.format AS format,
+                           d.purpose AS purpose, d.chunk_count AS chunk_count,
+                           d.created_at AS created_at
+                    ORDER BY d.created_at DESC
+                    """,
+                    purpose=purpose.value,
+                )
             rows = await result.data()
         return [self._document_summary_from_row(row) for row in rows]
 
@@ -200,7 +257,8 @@ class Neo4jVectorStore:
                 """
                 MATCH (d:Document {id: $document_id})
                 RETURN d.id AS id, d.filename AS filename, d.format AS format,
-                       d.chunk_count AS chunk_count, d.created_at AS created_at
+                       d.purpose AS purpose, d.chunk_count AS chunk_count,
+                       d.created_at AS created_at
                 """,
                 document_id=document_id,
             )
@@ -248,10 +306,17 @@ class Neo4jVectorStore:
         else:
             created_at = datetime.now(UTC)
 
+        purpose_raw = str(row.get("purpose", DocumentPurpose.GENERAL.value))
+        try:
+            purpose = DocumentPurpose(purpose_raw)
+        except ValueError:
+            purpose = DocumentPurpose.GENERAL
+
         return DocumentSummary(
             id=str(row["id"]),
             filename=str(row["filename"]),
             format=fmt,
             chunk_count=int(row.get("chunk_count") or 0),
             created_at=created_at,
+            purpose=purpose,
         )

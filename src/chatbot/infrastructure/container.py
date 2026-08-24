@@ -12,6 +12,7 @@ from chatbot.application.services.chat_service import ChatService
 from chatbot.application.services.eval_service import EvalService
 from chatbot.application.services.guardrails import RuleBasedGuardrail
 from chatbot.application.services.ingestion_service import IngestionService
+from chatbot.application.services.study_service import StudyService
 from chatbot.application.services.table_aware_chunker import TableAwareChunker
 from chatbot.application.services.transcription_service import TranscriptionService
 from chatbot.core.env import Env
@@ -50,6 +51,9 @@ from chatbot.infrastructure.adapters.persistence.postgres.prompt_repository impo
 from chatbot.infrastructure.adapters.persistence.postgres.schema import (
     init_schema,
     seed_prompts,
+)
+from chatbot.infrastructure.adapters.persistence.postgres.study_repository import (
+    PostgresStudyRepository,
 )
 from chatbot.infrastructure.adapters.persistence.postgres.vector_store import (
     PostgresVectorStore,
@@ -122,11 +126,19 @@ class AppContainer:  # pylint: disable=too-many-instance-attributes
             chunk_size=self.env.chunk_size,
             chunk_overlap=self.env.chunk_overlap,
         )
+        self.study_repository = PostgresStudyRepository(self.session_factory)
+        self.study_service = StudyService(
+            llm=self.llm,
+            prompts=self.prompts,
+            study_repo=self.study_repository,
+            vector_store=self.vector_store,
+        )
         self.ingestion_service = IngestionService(
             parser_factory=self.parser_factory,
             chunker=self.chunker,
             embeddings=self.embeddings,
             vector_store=self.vector_store,
+            study_service=self.study_service,
         )
         self.guardrails: GuardrailPort = RuleBasedGuardrail(
             min_score=self.env.rag_min_score,

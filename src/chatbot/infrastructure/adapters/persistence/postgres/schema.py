@@ -7,7 +7,14 @@ import logging
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from chatbot.domain.prompts import PROMPT_SYSTEM, PROMPT_USER_MESSAGE
+from chatbot.domain.prompts import (
+    PROMPT_STUDY_EVALUATE,
+    PROMPT_STUDY_QUIZ_GENERATE,
+    PROMPT_STUDY_SUMMARY,
+    PROMPT_STUDY_TUTOR_SYSTEM,
+    PROMPT_SYSTEM,
+    PROMPT_USER_MESSAGE,
+)
 from chatbot.infrastructure.adapters.persistence.postgres.models import (
     DEFAULT_EMBEDDING_DIMENSION,
     Base,
@@ -33,6 +40,82 @@ suficiente, dilo con claridad.
 
 DEFAULT_USER_MESSAGE_MD = """\
 {question}
+"""
+
+DEFAULT_STUDY_SUMMARY_MD = """\
+Eres un asistente académico. Resume el siguiente material de apuntes de forma \
+estructurada en español.
+
+Incluye:
+1. Título o tema principal
+2. Puntos clave (lista)
+3. Definiciones importantes
+4. Relaciones o procesos relevantes
+
+Responde SOLO con JSON válido (sin markdown) con esta forma:
+{"summary": "texto markdown del resumen", "key_concepts": ["concepto1", "concepto2"]}
+
+Material:
+{content}
+"""
+
+DEFAULT_STUDY_TUTOR_SYSTEM_MD = """\
+Eres un tutor académico estricto pero constructivo. Ayudas al estudiante a \
+repasar apuntes usando SOLO el contexto proporcionado.
+
+Reglas:
+- Explica conceptos con claridad y precisión terminológica del material.
+- Si el estudiante pide un test oral, formula UNA pregunta a la vez y evalúa \
+su respuesta de forma objetiva (correcto/incorrecto, qué falta, puntuación 0-10).
+- No inventes información fuera del contexto.
+- Responde en el mismo idioma del estudiante.
+
+Contexto de los apuntes:
+{context}
+"""
+
+DEFAULT_STUDY_QUIZ_GENERATE_MD = """\
+Genera {question_count} preguntas de estudio basadas en el material. \
+Modo: {mode}.
+
+El material incluye resumen y fragmentos originales. Las preguntas deben ser \
+respondibles con el material (no triviales ni ambiguas).
+
+Responde SOLO con JSON válido (array):
+[
+  {
+    "question": "pregunta",
+    "reference_answer": "respuesta esperada completa",
+    "rubric": "criterios de evaluación estrictos"
+  }
+]
+
+Resumen:
+{summary}
+
+Fragmentos:
+{content}
+"""
+
+DEFAULT_STUDY_EVALUATE_MD = """\
+Evalúa la respuesta del estudiante de forma OBJETIVA y ESTRICTA.
+
+Pregunta: {question}
+Respuesta esperada: {reference_answer}
+Rúbrica: {rubric}
+Respuesta del estudiante: {user_answer}
+
+Material de referencia:
+{content}
+
+Criterios:
+- Puntuación de 0 a 10 (max_score: 10)
+- Penaliza respuestas vagas, incompletas o incorrectas
+- Exige precisión terminológica del material
+- is_correct es true solo si score >= 7
+
+Responde SOLO con JSON válido:
+{"score": 0, "max_score": 10, "feedback": "...", "missing_points": ["..."], "is_correct": false}
 """
 
 
@@ -93,6 +176,14 @@ async def init_schema(
                 """
             )
         )
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE documents
+                ADD COLUMN IF NOT EXISTS purpose VARCHAR(32) NOT NULL DEFAULT 'general'
+                """
+            )
+        )
     logger.info("Esquema PostgreSQL inicializado")
 
 
@@ -100,6 +191,10 @@ async def seed_prompts(session_factory: async_sessionmaker[AsyncSession]) -> Non
     defaults = {
         PROMPT_SYSTEM: DEFAULT_SYSTEM_PROMPT_MD,
         PROMPT_USER_MESSAGE: DEFAULT_USER_MESSAGE_MD,
+        PROMPT_STUDY_SUMMARY: DEFAULT_STUDY_SUMMARY_MD,
+        PROMPT_STUDY_TUTOR_SYSTEM: DEFAULT_STUDY_TUTOR_SYSTEM_MD,
+        PROMPT_STUDY_QUIZ_GENERATE: DEFAULT_STUDY_QUIZ_GENERATE_MD,
+        PROMPT_STUDY_EVALUATE: DEFAULT_STUDY_EVALUATE_MD,
     }
     async with session_factory() as session:
         for key, content in defaults.items():

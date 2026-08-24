@@ -15,6 +15,11 @@ class DocumentFormat(StrEnum):
     XLSX = "xlsx"
 
 
+class DocumentPurpose(StrEnum):
+    GENERAL = "general"
+    NOTES = "notes"
+
+
 class ContentKind(StrEnum):
     TEXT = "text"
     TABLE = "table"
@@ -60,6 +65,7 @@ class DocumentSummary:
     format: DocumentFormat
     chunk_count: int
     created_at: datetime
+    purpose: DocumentPurpose = DocumentPurpose.GENERAL
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +74,7 @@ class IngestionResult:
     filename: str
     format: DocumentFormat
     chunk_count: int
+    purpose: DocumentPurpose = DocumentPurpose.GENERAL
 
 
 @dataclass(frozen=True, slots=True)
