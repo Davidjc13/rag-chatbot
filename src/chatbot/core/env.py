@@ -186,6 +186,10 @@ class Env:  # pylint: disable=too-many-public-methods
         return self.get_float("RAG_MIN_SCORE", 0.25)
 
     @property
+    def agent_max_steps(self) -> int:
+        return self.get_int("AGENT_MAX_STEPS", 4)
+
+    @property
     def litellm_embedding_model(self) -> str:
         return (
             self.get("LITELLM_EMBEDDING_MODEL", "ollama/nomic-embed-text")

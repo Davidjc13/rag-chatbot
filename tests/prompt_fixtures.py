@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from chatbot.domain.prompts import (
+    PROMPT_AGENT_SYSTEM,
     PROMPT_STUDY_EVALUATE,
     PROMPT_STUDY_QUIZ_GENERATE,
     PROMPT_STUDY_SUMMARY,
@@ -28,11 +29,13 @@ def default_prompt_repo(
         '"missing_points": [], "is_correct": true}'
     ),
     study_tutor_system: str = "Tutor.\n{context}",
+    agent_system: str = "Usa search_documents antes de responder.",
 ) -> InMemoryPromptRepository:
     return InMemoryPromptRepository(
         {
             PROMPT_SYSTEM: system,
             PROMPT_USER_MESSAGE: user_message,
+            PROMPT_AGENT_SYSTEM: agent_system,
             PROMPT_STUDY_SUMMARY: study_summary,
             PROMPT_STUDY_QUIZ_GENERATE: study_quiz_generate,
             PROMPT_STUDY_EVALUATE: study_evaluate,

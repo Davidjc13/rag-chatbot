@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from chatbot.domain.prompts import (
+    PROMPT_AGENT_SYSTEM,
     PROMPT_STUDY_EVALUATE,
     PROMPT_STUDY_QUIZ_GENERATE,
     PROMPT_STUDY_SUMMARY,
@@ -40,6 +41,20 @@ suficiente, dilo con claridad.
 
 DEFAULT_USER_MESSAGE_MD = """\
 {question}
+"""
+
+DEFAULT_AGENT_SYSTEM_MD = """\
+Eres un asistente de documentos con acceso a la herramienta search_documents.
+
+Reglas:
+- Antes de afirmar hechos sobre los documentos, llama a search_documents.
+- Si la primera búsqueda no basta o indica baja relevancia, reformula la \
+consulta y busca otra vez.
+- Cita las fuentes con exactamente el formato indicado en los resultados \
+(un documento, una sola cita). No inventes índices, títulos ni ids.
+- Si tras buscar no hay contexto suficiente, dilo con claridad y no inventes.
+- Responde en el mismo idioma en que te escriben, de forma clara y concisa.
+- Si razonas internamente, hazlo de forma breve.
 """
 
 DEFAULT_STUDY_SUMMARY_MD = """\
@@ -191,6 +206,7 @@ async def seed_prompts(session_factory: async_sessionmaker[AsyncSession]) -> Non
     defaults = {
         PROMPT_SYSTEM: DEFAULT_SYSTEM_PROMPT_MD,
         PROMPT_USER_MESSAGE: DEFAULT_USER_MESSAGE_MD,
+        PROMPT_AGENT_SYSTEM: DEFAULT_AGENT_SYSTEM_MD,
         PROMPT_STUDY_SUMMARY: DEFAULT_STUDY_SUMMARY_MD,
         PROMPT_STUDY_TUTOR_SYSTEM: DEFAULT_STUDY_TUTOR_SYSTEM_MD,
         PROMPT_STUDY_QUIZ_GENERATE: DEFAULT_STUDY_QUIZ_GENERATE_MD,

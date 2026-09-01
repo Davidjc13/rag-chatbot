@@ -25,6 +25,7 @@ const refsEmptyEl = document.getElementById("refs-empty");
 const conversationsListEl = document.getElementById("conversations-list");
 const conversationsEmptyEl = document.getElementById("conversations-empty");
 const flowEls = document.querySelectorAll('input[name="retrieval-backend"]');
+const modeEls = document.querySelectorAll('input[name="rag-mode"]');
 const modelSelectEl = document.getElementById("model-select");
 
 let conversationId = getActiveConversationId();
@@ -184,7 +185,7 @@ function appendMessage(role, content, { error = false } = {}) {
 }
 
 function ensureThinkingBlock(article) {
-  let details = article.querySelector(".thinking-block");
+  let details = article.querySelector(".thinking-block:not(.agent-steps)");
   if (details) return details;
   details = document.createElement("details");
   details.className = "thinking-block";
@@ -209,11 +210,59 @@ function appendThinking(article, chunk) {
 }
 
 function finishThinking(article) {
-  const details = article.querySelector(".thinking-block");
+  const details = article.querySelector(".thinking-block:not(.agent-steps)");
   if (!details) return;
   details.open = false;
   const label = details.querySelector(".thinking-label");
   if (label) label.textContent = "Pensamiento";
+}
+
+function ensureAgentSteps(article) {
+  let details = article.querySelector(".agent-steps");
+  if (details) return details;
+  details = document.createElement("details");
+  details.className = "agent-steps thinking-block";
+  details.open = true;
+  const summary = document.createElement("summary");
+  summary.className = "thinking-summary";
+  summary.innerHTML =
+    '<span class="thinking-label">Pasos del agente</span><span class="thinking-hint">ver búsquedas</span>';
+  const list = document.createElement("ol");
+  list.className = "agent-steps-list";
+  details.append(summary, list);
+  const body = article.querySelector(".body");
+  article.insertBefore(details, body);
+  return details;
+}
+
+function appendAgentTool(article, data) {
+  const details = ensureAgentSteps(article);
+  const list = details.querySelector(".agent-steps-list");
+  const query = data.query || "…";
+  if (data.status === "start") {
+    const li = document.createElement("li");
+    li.className = "agent-step pending";
+    li.textContent = `Buscando: "${query}"`;
+    list.appendChild(li);
+  } else {
+    const pending = list.querySelector(".agent-step.pending");
+    if (pending) {
+      pending.classList.remove("pending");
+      pending.classList.add("done");
+    } else {
+      const li = document.createElement("li");
+      li.className = "agent-step done";
+      li.textContent = `Buscando: "${query}"`;
+      list.appendChild(li);
+    }
+  }
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function finishAgentSteps(article) {
+  const details = article.querySelector(".agent-steps");
+  if (!details) return;
+  details.open = false;
 }
 
 function updateAssistantBody(bodyEl, rawText) {
@@ -262,6 +311,11 @@ async function switchConversation(id) {
 function selectedBackend() {
   const checked = [...flowEls].find((el) => el.checked);
   return checked?.value || "postgres";
+}
+
+function selectedMode() {
+  const checked = [...modeEls].find((el) => el.checked);
+  return checked?.value || "rag";
 }
 
 function selectedModel() {
@@ -314,6 +368,12 @@ function setStreamingUI(active) {
   newBtn.disabled = active;
   if (voiceBtn) voiceBtn.disabled = active;
   if (modelSelectEl) modelSelectEl.disabled = active;
+  flowEls.forEach((el) => {
+    el.disabled = active;
+  });
+  modeEls.forEach((el) => {
+    el.disabled = active;
+  });
 }
 
 function finishStreamUI(article) {
@@ -367,6 +427,7 @@ formEl.addEventListener("submit", async (event) => {
     if (cancelled) return;
     cancelled = true;
     if (sawThinking) finishThinking(article);
+    finishAgentSteps(article);
     if (rawAssistant.trim()) {
       updateAssistantBody(assistantBody, rawAssistant);
       upsertConversationMeta({ id: activeId });
@@ -385,6 +446,7 @@ formEl.addEventListener("submit", async (event) => {
       conversationId: activeId,
       retrievalBackend: selectedBackend(),
       model: selectedModel(),
+      mode: selectedMode(),
       signal: streamAbort.signal,
       handlers: {
         onMeta(data) {
@@ -401,6 +463,13 @@ formEl.addEventListener("submit", async (event) => {
           setStatus("Pensando… (el modelo puede tardar un rato)");
           appendThinking(article, data.content || "");
         },
+        onTool(data) {
+          appendAgentTool(article, data || {});
+          if (data?.status === "start") {
+            const query = data.query ? `"${data.query}"` : "documentos";
+            setStatus(`Buscando ${query}…`);
+          }
+        },
         onToken(data) {
           if (!sawContent && sawThinking) {
             finishThinking(article);
@@ -412,6 +481,7 @@ formEl.addEventListener("submit", async (event) => {
         },
         onDone() {
           if (sawThinking) finishThinking(article);
+          finishAgentSteps(article);
           updateAssistantBody(assistantBody, rawAssistant);
           upsertConversationMeta({ id: activeId });
           renderConversationsPanel();

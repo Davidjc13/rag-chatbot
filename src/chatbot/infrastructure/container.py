@@ -28,6 +28,8 @@ from chatbot.domain.ports import (
     VectorStorePort,
 )
 from chatbot.domain.retrieval import RETRIEVAL_BACKEND_POSTGRES
+from chatbot.infrastructure.adapters.agent.chat_model_factory import ChatModelFactory
+from chatbot.infrastructure.adapters.agent.langgraph_react import LangGraphReactAgent
 from chatbot.infrastructure.adapters.ingestion.parser_factory import DocumentParserFactory
 from chatbot.infrastructure.adapters.llm.embedding_adapter import LiteLLMEmbeddingAdapter
 from chatbot.infrastructure.adapters.llm.llm_factory import LLMFactory
@@ -144,6 +146,15 @@ class AppContainer:  # pylint: disable=too-many-instance-attributes
             min_score=self.env.rag_min_score,
         )
         self.tracer: TracingPort = self._build_tracer()
+        self.agent = LangGraphReactAgent(
+            embeddings=self.embeddings,
+            vector_store=self.vector_store,
+            prompts=self.prompts,
+            rag_top_k=self.env.rag_top_k,
+            rag_min_score=self.env.rag_min_score,
+            max_steps=self.env.agent_max_steps,
+            chat_model_factory=ChatModelFactory(self.env),
+        )
         self.chat_service = ChatService(
             llm=self.llm,
             repository=self.repository,
@@ -152,6 +163,7 @@ class AppContainer:  # pylint: disable=too-many-instance-attributes
             vector_store=self.vector_store,
             guardrails=self.guardrails,
             tracer=self.tracer,
+            agent=self.agent,
             rag_top_k=self.env.rag_top_k,
         )
         # Compat: rutas health leen settings.llm_provider

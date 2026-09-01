@@ -41,10 +41,12 @@ def test_env_does_not_cache_unused_keys(monkeypatch: pytest.MonkeyPatch) -> None
 def test_typed_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("RAG_TOP_K", "7")
     monkeypatch.setenv("RAG_MIN_SCORE", "0.5")
+    monkeypatch.setenv("AGENT_MAX_STEPS", "6")
     monkeypatch.setenv("LOG_JSON", "true")
     env = Env.get_instance()
     assert env.rag_top_k == 7
     assert env.rag_min_score == 0.5
+    assert env.agent_max_steps == 6
     assert env.log_json is True
 
 
