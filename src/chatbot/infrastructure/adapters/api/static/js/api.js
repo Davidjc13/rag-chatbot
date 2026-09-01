@@ -183,7 +183,7 @@ export async function listModels() {
 
 /**
  * Consume SSE de POST /chat/stream.
- * handlers: { onMeta, onThinking, onToken, onDone, onCancelled, onError }
+ * handlers: { onMeta, onThinking, onTool, onToken, onDone, onCancelled, onError }
  */
 export async function streamChat({
   message,
@@ -277,6 +277,7 @@ function dispatchSseBlock(raw, handlers) {
 
   if (eventName === "meta" && handlers.onMeta) handlers.onMeta(data);
   else if (eventName === "thinking" && handlers.onThinking) handlers.onThinking(data);
+  else if (eventName === "tool" && handlers.onTool) handlers.onTool(data);
   else if (eventName === "token" && handlers.onToken) handlers.onToken(data);
   else if (eventName === "done" && handlers.onDone) handlers.onDone(data);
   else if (eventName === "cancelled" && handlers.onCancelled) handlers.onCancelled(data);

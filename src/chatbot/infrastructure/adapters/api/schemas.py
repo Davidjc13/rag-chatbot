@@ -13,7 +13,7 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = None
     retrieval_backend: Literal["postgres", "neo4j"] = "postgres"
     model: str | None = Field(default=None, max_length=256)
-    mode: Literal["rag", "study"] = "rag"
+    mode: Literal["rag", "study", "agent"] = "rag"
     document_id: str | None = Field(default=None, max_length=36)
 
 

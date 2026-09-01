@@ -73,6 +73,7 @@ services:
       CHUNK_OVERLAP: "100"
       RAG_TOP_K: "4"
       RAG_MIN_SCORE: "0.25"
+      AGENT_MAX_STEPS: "4"
       DATABASE_URL: postgresql+asyncpg://chatbot:chatbot@postgres:5432/chatbot
       EMBEDDING_DIMENSION: "768"
       VECTOR_BACKEND: postgres

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
@@ -93,6 +93,72 @@ class LLMPort(ABC):
     @abstractmethod
     def model_name(self) -> str:
         """Nombre del modelo en uso."""
+
+
+@dataclass(frozen=True, slots=True)
+class AgentRagResult:
+    """Resultado final de un turno del agente ReAct."""
+
+    text: str
+    retrieved: tuple[RetrievedChunk, ...]
+    retrieval_duration_ms: int = 0
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    duration_ms: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AgentToolEvent:
+    """Llamada a herramienta (inicio o fin) durante el bucle ReAct."""
+
+    name: str
+    status: Literal["start", "end"]
+    query: str
+    output_preview: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class AgentTokenEvent:
+    """Delta de texto del modelo (respuesta o thinking)."""
+
+    content: str
+    kind: Literal["content", "thinking"] = "content"
+
+
+@dataclass(frozen=True, slots=True)
+class AgentSourcesEvent:
+    """Fuentes acumuladas tras una o más búsquedas."""
+
+    retrieved: tuple[RetrievedChunk, ...]
+
+
+AgentStreamEvent = AgentToolEvent | AgentTokenEvent | AgentSourcesEvent | AgentRagResult
+
+
+class AgentRagPort(ABC):
+    """Puerto de salida hacia un agente ReAct con retrieval como herramienta."""
+
+    @abstractmethod
+    async def run(
+        self,
+        messages: list[Message],
+        *,
+        retrieval_backend: str | None = None,
+        model: str | None = None,
+    ) -> AgentRagResult:
+        """Ejecuta el bucle agente y devuelve la respuesta final."""
+
+    @abstractmethod
+    async def run_stream(
+        self,
+        messages: list[Message],
+        *,
+        retrieval_backend: str | None = None,
+        model: str | None = None,
+        is_cancelled: Callable[[], Awaitable[bool]] | None = None,
+    ) -> AsyncIterator[AgentStreamEvent]:
+        """Ejecuta el bucle agente emitiendo herramientas, tokens y el resultado."""
+        yield AgentRagResult(text="", retrieved=())
 
 
 class GuardrailPort(ABC):
