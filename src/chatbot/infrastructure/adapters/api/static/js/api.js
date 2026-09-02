@@ -1,15 +1,29 @@
 /** Cliente HTTP hacia /api/v1 */
 
+import { authHeaders } from "./auth.js";
+
 const API_BASE = "/api/v1";
 
+function mergeHeaders(init = {}) {
+  return { ...authHeaders(), ...(init.headers || {}) };
+}
+
 export async function apiJson(path, options = {}) {
-  const response = await fetch(`${API_BASE}${path}`, options);
+  const { headers: _ignored, ...rest } = options;
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...rest,
+    headers: mergeHeaders(options),
+  });
   if (response.status === 204) {
     return null;
   }
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(data.error || `Error HTTP ${response.status}`);
+    const error = new Error(
+      response.status === 401
+        ? "API key inválida o ausente. Configúrala en la barra superior."
+        : data.error || `Error HTTP ${response.status}`,
+    );
     error.code = data.code;
     error.status = response.status;
     error.detail = data.detail;
@@ -177,6 +191,29 @@ export async function getConversation(conversationId) {
   return apiJson(`/conversations/${encodeURIComponent(conversationId)}`);
 }
 
+export async function listConversations() {
+  return apiJson("/conversations");
+}
+
+export async function deleteConversation(conversationId) {
+  return apiJson(`/conversations/${encodeURIComponent(conversationId)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function replaceDocument(documentId, file) {
+  const body = new FormData();
+  body.append("file", file, file.name);
+  return apiJson(`/documents/${encodeURIComponent(documentId)}`, {
+    method: "PUT",
+    body,
+  });
+}
+
+export async function listDocumentChunks(documentId) {
+  return apiJson(`/documents/${encodeURIComponent(documentId)}/chunks`);
+}
+
 export async function listModels() {
   return apiJson("/models");
 }
@@ -199,7 +236,11 @@ export async function streamChat({
   try {
     const response = await fetch(`${API_BASE}/chat/stream`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+      headers: {
+        ...authHeaders(),
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      },
       body: JSON.stringify({
         message,
         conversation_id: conversationId || null,

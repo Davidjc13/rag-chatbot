@@ -98,6 +98,29 @@ class InMemoryVectorStore(VectorStorePort):
             scored.sort(key=lambda item: item.score, reverse=True)
             return scored[:top_k]
 
+    async def keyword_search(
+        self,
+        query: str,
+        *,
+        top_k: int,
+        document_id: str | None = None,
+    ) -> list[RetrievedChunk]:
+        tokens = [token.lower() for token in (query or "").split() if token.strip()]
+        if top_k <= 0 or not tokens:
+            return []
+        with self._lock:
+            scored: list[RetrievedChunk] = []
+            for chunk in self._chunks.values():
+                if document_id and chunk.document_id != document_id:
+                    continue
+                haystack = chunk.content.lower()
+                hits = sum(haystack.count(token) for token in tokens)
+                if hits <= 0:
+                    continue
+                scored.append(RetrievedChunk(chunk=chunk, score=float(hits)))
+            scored.sort(key=lambda item: item.score, reverse=True)
+            return scored[:top_k]
+
     async def get_chunks_by_document(self, document_id: str) -> list[DocumentChunk]:
         with self._lock:
             chunks = [c for c in self._chunks.values() if c.document_id == document_id]

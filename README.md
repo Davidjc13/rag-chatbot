@@ -98,6 +98,14 @@ Copy `.env.example` to `.env` and adjust:
 | `CHUNK_SIZE` / `CHUNK_OVERLAP` | Chunk size | `800` / `100` |
 | `RAG_TOP_K` | Chunks in the prompt | `4` |
 | `RAG_MIN_SCORE` | Document relevance threshold | `0.25` |
+| `RAG_HYBRID` | Dense + keyword fusion (Postgres only; Neo4j stays vector-only) | `true` |
+| `RAG_CANDIDATES` | Candidate pool before RRF cut | `20` |
+| `RAG_HYBRID_ALPHA` | Weight of cosine vs keyword score | `0.7` |
+| `CHAT_MAX_HISTORY_MESSAGES` | LLM context window (DB keeps full history) | `16` |
+| `AUTH_ENABLED` / `AUTH_API_KEY` | Optional Bearer API key for `/api/v1` (health stays public) | `false` |
+| `CORS_ORIGINS` | Comma-separated origins (`*` allowed) | `*` |
+| `RATE_LIMIT_CHAT` / `_UPLOAD` / `_EVAL` | Per-IP sliding window per minute (in-memory, not shared across replicas) | `60` / `20` / `10` |
+| `EVAL_WORKER_ENABLED` | In-process Postgres job worker for eval runs | `true` |
 
 ## Local development
 

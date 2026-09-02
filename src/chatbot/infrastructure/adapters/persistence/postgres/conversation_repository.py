@@ -6,7 +6,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
-from chatbot.domain.entities import Conversation, Message, Role
+from chatbot.domain.entities import Conversation, ConversationSummary, Message, Role
 from chatbot.infrastructure.adapters.persistence.postgres.models import (
     ConversationModel,
     MessageModel,
@@ -30,6 +30,8 @@ class PostgresConversationRepository:
             return Conversation(
                 id=row.id,
                 created_at=row.created_at,
+                updated_at=row.updated_at or row.created_at,
+                title=row.title or "Nueva conversación",
                 messages=[
                     Message(
                         role=Role(m.role),
@@ -47,10 +49,14 @@ class PostgresConversationRepository:
                 session.add(
                     ConversationModel(
                         id=conversation.id,
+                        title=conversation.title,
                         created_at=conversation.created_at,
+                        updated_at=conversation.updated_at,
                     )
                 )
             else:
+                row.title = conversation.title
+                row.updated_at = conversation.updated_at
                 await session.execute(
                     delete(MessageModel).where(
                         MessageModel.conversation_id == conversation.id
@@ -75,3 +81,30 @@ class PostgresConversationRepository:
             if row is not None:
                 await session.delete(row)
                 await session.commit()
+
+    async def list(self, *, limit: int = 50) -> list[ConversationSummary]:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(ConversationModel)
+                .options(selectinload(ConversationModel.messages))
+                .order_by(ConversationModel.updated_at.desc())
+                .limit(max(limit, 0))
+            )
+            rows = result.scalars().all()
+            summaries: list[ConversationSummary] = []
+            for row in rows:
+                preview = ""
+                for message in row.messages:
+                    if message.role == Role.USER.value:
+                        preview = message.content[:160]
+                        break
+                summaries.append(
+                    ConversationSummary(
+                        id=row.id,
+                        title=row.title or "Nueva conversación",
+                        updated_at=row.updated_at or row.created_at,
+                        created_at=row.created_at,
+                        preview=preview,
+                    )
+                )
+            return summaries

@@ -84,3 +84,18 @@ async def test_ingest_mirrors_chunks_to_secondary_backend() -> None:
 
     assert await primary.get_document(result.document_id) is not None
     assert await secondary.get_document(result.document_id) is not None
+
+
+@pytest.mark.asyncio
+async def test_reingest_keeps_document_id(ingestion_service: IngestionService) -> None:
+    first = await ingestion_service.ingest(filename="policy.docx", data=_docx_bytes())
+    second = await ingestion_service.ingest(
+        filename="policy.docx",
+        data=_docx_bytes(),
+        document_id=first.document_id,
+    )
+    assert second.document_id == first.document_id
+    docs = await ingestion_service.list_documents()
+    assert len(docs) == 1
+    chunks = await ingestion_service.list_document_chunks(first.document_id)
+    assert chunks

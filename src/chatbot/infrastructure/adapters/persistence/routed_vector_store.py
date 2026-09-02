@@ -68,6 +68,17 @@ class RoutedVectorStore(VectorStorePort):
             )
         raise ConfigurationError(f"Backend de retrieval no soportado: {backend}")
 
+    async def keyword_search(
+        self,
+        query: str,
+        *,
+        top_k: int,
+        document_id: str | None = None,
+    ) -> list[RetrievedChunk]:
+        return await self._primary.keyword_search(
+            query, top_k=top_k, document_id=document_id
+        )
+
     async def get_chunks_by_document(self, document_id: str) -> list[DocumentChunk]:
         return await self._primary.get_chunks_by_document(document_id)
 

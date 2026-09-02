@@ -163,3 +163,33 @@ async def test_chat_stream_cancelled_saves_partial() -> None:
     conversation = await service.get_conversation(events[0].conversation_id)
     assert conversation.messages[0].content == "Hola"
     assert conversation.messages[1].content == "uno dos"
+
+
+@pytest.mark.asyncio
+async def test_list_delete_and_rename_conversations(chat_service: ChatService) -> None:
+    first = await chat_service.chat("Primera pregunta larga para título")
+    await chat_service.chat("Otra")
+    listed = await chat_service.list_conversations()
+    assert any(item.id == first.conversation_id for item in listed)
+    titled = next(item for item in listed if item.id == first.conversation_id)
+    assert "Primera pregunta" in titled.title
+
+    renamed = await chat_service.rename_conversation(first.conversation_id, "Alias")
+    assert renamed.title == "Alias"
+
+    await chat_service.delete_conversation(first.conversation_id)
+    remaining = await chat_service.list_conversations()
+    assert all(item.id != first.conversation_id for item in remaining)
+
+
+@pytest.mark.asyncio
+async def test_history_window_limits_llm_messages(chat_service: ChatService) -> None:
+    chat_service._max_history_messages = 2  # noqa: SLF001
+    cid = None
+    for idx in range(4):
+        reply = await chat_service.chat(f"turno {idx}", conversation_id=cid)
+        cid = reply.conversation_id
+    stored = await chat_service.get_conversation(cid)
+    assert len(stored.messages) == 8
+    window = stored.history_window(2)
+    assert len(window) == 2

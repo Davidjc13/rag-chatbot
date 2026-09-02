@@ -14,6 +14,12 @@ _MIME_TO_EXTENSIONS: dict[str, frozenset[str]] = {
     ),
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": frozenset({".xlsx"}),
     "application/vnd.ms-excel.sheet.macroenabled.12": frozenset({".xlsm"}),
+    "text/plain": frozenset({".txt", ".md", ".csv"}),
+    "text/markdown": frozenset({".md"}),
+    "text/x-markdown": frozenset({".md"}),
+    "text/csv": frozenset({".csv"}),
+    "application/csv": frozenset({".csv"}),
+    "application/octet-stream": frozenset({".txt", ".md", ".csv"}),
 }
 
 _ALLOWED_MIME_TYPES = frozenset(_MIME_TO_EXTENSIONS)
@@ -36,6 +42,18 @@ def _assert_magic_bytes(data: bytes, mime: str) -> None:
             raise InvalidMimeTypeError(
                 "El contenido no coincide con un PDF válido (magic bytes)"
             )
+        return
+
+    if mime in {
+        "text/plain",
+        "text/markdown",
+        "text/x-markdown",
+        "text/csv",
+        "application/csv",
+        "application/octet-stream",
+    }:
+        if b"\x00" in data[:4096]:
+            raise InvalidMimeTypeError("El contenido de texto no puede ser binario")
         return
 
     # DOCX / XLSX / XLSM son ZIP (OOXML)

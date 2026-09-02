@@ -39,12 +39,13 @@ class IngestionService:
         self._vector_store = vector_store
         self._study_service = study_service
 
-    async def ingest(
+    async def ingest(  # pylint: disable=too-many-locals
         self,
         *,
         filename: str,
         data: bytes,
         purpose: DocumentPurpose = DocumentPurpose.GENERAL,
+        document_id: str | None = None,
     ) -> IngestionResult:
         name = (filename or "").strip()
         if not name:
@@ -52,14 +53,26 @@ class IngestionService:
         if not data:
             raise ValidationError("El fichero está vacío")
 
+        replace_id = (document_id or "").strip() or None
+        existing_purpose = purpose
+        if replace_id:
+            existing = await self._vector_store.get_document(replace_id)
+            if existing is None:
+                raise DocumentNotFoundError(replace_id)
+            existing_purpose = existing.purpose
+            await self._vector_store.delete_by_document(replace_id)
+
         parser = self._parser_factory.get_parser(name)
         parsed = parser.parse(filename=name, data=data)
+        if replace_id:
+            parsed.id = replace_id
         chunks = self._chunker.chunk(parsed)
         if not chunks:
             raise ValidationError("No se generaron chunks a partir del documento")
 
+        resolved_purpose = existing_purpose if replace_id else purpose
         for chunk in chunks:
-            chunk.metadata["purpose"] = purpose.value
+            chunk.metadata["purpose"] = resolved_purpose.value
 
         vectors = await self._embeddings.embed([c.content for c in chunks])
         for chunk, vector in zip(chunks, vectors, strict=True):
@@ -72,12 +85,12 @@ class IngestionService:
                 "document_id": parsed.id,
                 "document_filename": name,
                 "chunk_count": len(chunks),
-                "purpose": purpose.value,
+                "purpose": resolved_purpose.value,
                 "embedding_model": self._embeddings.model_name,
             },
         )
 
-        if purpose == DocumentPurpose.NOTES and self._study_service is not None:
+        if resolved_purpose == DocumentPurpose.NOTES and self._study_service is not None:
             await self._study_service.generate_profile(parsed.id)
 
         return IngestionResult(
@@ -85,7 +98,7 @@ class IngestionService:
             filename=name,
             format=parsed.format,
             chunk_count=len(chunks),
-            purpose=purpose,
+            purpose=resolved_purpose,
         )
 
     async def list_documents(
@@ -94,6 +107,12 @@ class IngestionService:
         purpose: DocumentPurpose | None = None,
     ) -> list[DocumentSummary]:
         return await self._vector_store.list_documents(purpose=purpose)
+
+    async def list_document_chunks(self, document_id: str):
+        existing = await self._vector_store.get_document(document_id)
+        if existing is None:
+            raise DocumentNotFoundError(document_id)
+        return await self._vector_store.get_chunks_by_document(document_id)
 
     async def delete_document(self, document_id: str) -> None:
         existing = await self._vector_store.get_document(document_id)

@@ -47,6 +47,8 @@ spec:
           envFrom:
             - configMapRef:
                 name: chatbot-config
+            - secretRef:
+                name: chatbot-secrets
           env:
             - name: OLLAMA_BASE_URL
               value: http://ollama:11434

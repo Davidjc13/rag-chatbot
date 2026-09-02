@@ -42,7 +42,10 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: NEO4J_AUTH
-              value: neo4j/password
+              valueFrom:
+                secretKeyRef:
+                  name: chatbot-secrets
+                  key: NEO4J_AUTH
           ports:
             - name: http
               containerPort: 7474

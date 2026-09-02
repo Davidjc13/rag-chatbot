@@ -41,7 +41,10 @@ spec:
             - name: POSTGRES_USER
               value: chatbot
             - name: POSTGRES_PASSWORD
-              value: chatbot
+              valueFrom:
+                secretKeyRef:
+                  name: chatbot-secrets
+                  key: POSTGRES_PASSWORD
             - name: POSTGRES_DB
               value: chatbot
           ports:

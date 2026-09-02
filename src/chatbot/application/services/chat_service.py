@@ -15,7 +15,14 @@ from chatbot.application.services.rag_context import (
 )
 from chatbot.application.services.rag_retrieval import retrieve_chunks
 from chatbot.domain.documents import RetrievedChunk
-from chatbot.domain.entities import ChatReply, Conversation, Message, Role
+from chatbot.domain.entities import (
+    ChatReply,
+    Conversation,
+    ConversationSummary,
+    Message,
+    Role,
+    conversation_title_from_query,
+)
 from chatbot.domain.exceptions import (
     ConfigurationError,
     ConversationNotFoundError,
@@ -109,6 +116,10 @@ class ChatService:  # pylint: disable=too-many-instance-attributes
         tracer: TracingPort | None = None,
         agent: AgentRagPort | None = None,
         rag_top_k: int = 4,
+        max_history_messages: int = 16,
+        rag_hybrid: bool = False,
+        rag_candidates: int = 20,
+        rag_hybrid_alpha: float = 0.7,
     ) -> None:
         self._llm = llm
         self._repository = repository
@@ -119,6 +130,10 @@ class ChatService:  # pylint: disable=too-many-instance-attributes
         self._tracer = tracer
         self._agent = agent
         self._rag_top_k = rag_top_k
+        self._max_history_messages = max_history_messages
+        self._rag_hybrid = rag_hybrid
+        self._rag_candidates = rag_candidates
+        self._rag_hybrid_alpha = rag_hybrid_alpha
 
     def _resolve_model(self, model: str | None) -> str:
         return (model or "").strip() or self._llm.model_name
@@ -405,6 +420,24 @@ class ChatService:  # pylint: disable=too-many-instance-attributes
             raise ConversationNotFoundError(conversation_id)
         return conversation
 
+    async def list_conversations(self, *, limit: int = 50) -> list[ConversationSummary]:
+        return await self._repository.list(limit=limit)
+
+    async def delete_conversation(self, conversation_id: str) -> None:
+        conversation = await self._repository.get(conversation_id)
+        if conversation is None:
+            raise ConversationNotFoundError(conversation_id)
+        await self._repository.delete(conversation_id)
+
+    async def rename_conversation(self, conversation_id: str, title: str) -> Conversation:
+        conversation = await self.get_conversation(conversation_id)
+        trimmed = (title or "").strip()
+        if not trimmed:
+            raise ValidationError("El título no puede estar vacío")
+        conversation.title = conversation_title_from_query(trimmed)
+        await self._repository.save(conversation)
+        return conversation
+
     async def _resolve_conversation(self, conversation_id: str | None) -> Conversation:
         if conversation_id is None or not conversation_id.strip():
             return Conversation()
@@ -439,6 +472,9 @@ class ChatService:  # pylint: disable=too-many-instance-attributes
             retrieval_backend=retrieval_backend,
             top_k=effective_top_k,
             document_id=document_id,
+            hybrid=self._rag_hybrid,
+            candidates=self._rag_candidates,
+            hybrid_alpha=self._rag_hybrid_alpha,
         )
 
     async def _retrieve_timed(
@@ -501,7 +537,7 @@ class ChatService:  # pylint: disable=too-many-instance-attributes
             question = conversation.messages[-1].content
         user_rendered = user_template.replace("{question}", question)
 
-        history = conversation.history()
+        history = conversation.history_window(self._max_history_messages)
         if history and history[-1].role == Role.USER:
             history[-1] = Message(
                 role=Role.USER,
@@ -530,7 +566,7 @@ class ChatService:  # pylint: disable=too-many-instance-attributes
 
         started = time.perf_counter()
         result = await self._agent.run(
-            list(conversation.messages),
+            conversation.history_window(self._max_history_messages),
             retrieval_backend=retrieval_backend,
             model=model,
         )
@@ -586,7 +622,7 @@ class ChatService:  # pylint: disable=too-many-instance-attributes
         started = time.perf_counter()
 
         async for event in self._agent.run_stream(
-            list(conversation.messages),
+            conversation.history_window(self._max_history_messages),
             retrieval_backend=retrieval_backend,
             model=model,
             is_cancelled=is_cancelled,

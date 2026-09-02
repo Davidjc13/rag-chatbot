@@ -79,3 +79,12 @@ def test_validate_upload_accepts_pdf_magic() -> None:
         data=b"%PDF-1.4 fake content",
     )
     assert mime == "application/pdf"
+
+
+def test_validate_upload_accepts_markdown() -> None:
+    mime = validate_upload(
+        filename="notas.md",
+        content_type="text/markdown",
+        data=b"# Hola",
+    )
+    assert mime == "text/markdown"

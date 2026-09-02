@@ -186,6 +186,59 @@ class Env:  # pylint: disable=too-many-public-methods
         return self.get_float("RAG_MIN_SCORE", 0.25)
 
     @property
+    def rag_hybrid(self) -> bool:
+        return self.get_bool("RAG_HYBRID", True)
+
+    @property
+    def rag_candidates(self) -> int:
+        return self.get_int("RAG_CANDIDATES", 20)
+
+    @property
+    def rag_hybrid_alpha(self) -> float:
+        return self.get_float("RAG_HYBRID_ALPHA", 0.7)
+
+    @property
+    def chat_max_history_messages(self) -> int:
+        return self.get_int("CHAT_MAX_HISTORY_MESSAGES", 16)
+
+    @property
+    def auth_enabled(self) -> bool:
+        return self.get_bool("AUTH_ENABLED", False)
+
+    @property
+    def auth_api_key(self) -> str | None:
+        return self.get("AUTH_API_KEY")
+
+    @property
+    def cors_origins(self) -> list[str]:
+        raw = self.get("CORS_ORIGINS", "*") or "*"
+        return [part.strip() for part in raw.split(",") if part.strip()]
+
+    @property
+    def rate_limit_chat(self) -> int:
+        return self.get_int("RATE_LIMIT_CHAT", 60)
+
+    @property
+    def rate_limit_upload(self) -> int:
+        return self.get_int("RATE_LIMIT_UPLOAD", 20)
+
+    @property
+    def rate_limit_eval(self) -> int:
+        return self.get_int("RATE_LIMIT_EVAL", 10)
+
+    @property
+    def eval_worker_enabled(self) -> bool:
+        return self.get_bool("EVAL_WORKER_ENABLED", True)
+
+    @property
+    def eval_worker_poll_seconds(self) -> float:
+        return self.get_float("EVAL_WORKER_POLL_SECONDS", 2.0)
+
+    @property
+    def eval_job_lease_seconds(self) -> int:
+        return self.get_int("EVAL_JOB_LEASE_SECONDS", 300)
+
+    @property
     def agent_max_steps(self) -> int:
         return self.get_int("AGENT_MAX_STEPS", 4)
 

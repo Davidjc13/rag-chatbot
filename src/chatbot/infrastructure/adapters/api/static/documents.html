@@ -42,7 +42,7 @@
             <input
               id="file-input"
               type="file"
-              accept=".pdf,.docx,.xlsx,.xlsm,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroEnabled.12"
+              accept=".pdf,.docx,.xlsx,.xlsm,.txt,.md,.csv,application/pdf,text/plain,text/markdown,text/csv,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroEnabled.12"
               required
             />
             <button type="submit" id="upload-btn">Subir</button>
@@ -64,6 +64,11 @@
           </thead>
           <tbody id="docs-body"></tbody>
         </table>
+
+        <section id="chunks-panel" class="chunks-panel" hidden>
+          <h2 id="chunks-title">Chunks</h2>
+          <div id="chunks-body" class="chunks-body"></div>
+        </section>
       </main>
     </div>
     <script type="module" src="/static/js/documents.js"></script>

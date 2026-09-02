@@ -20,6 +20,7 @@ fi
 
 kubectl apply -f "$ROOT/namespace.yaml"
 kubectl apply -f "$ROOT/configmap.yaml"
+kubectl apply -f "$ROOT/secret.yaml"
 kubectl apply -f "$ROOT/postgres-deployment.yaml"
 kubectl apply -f "$ROOT/neo4j-deployment.yaml"
 kubectl apply -f "$ROOT/ollama-deployment.yaml"

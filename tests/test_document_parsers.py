@@ -12,6 +12,7 @@ from chatbot.domain.documents import ContentKind
 from chatbot.domain.exceptions import UnsupportedDocumentError
 from chatbot.infrastructure.adapters.ingestion.docx_parser import DocxParserAdapter
 from chatbot.infrastructure.adapters.ingestion.parser_factory import DocumentParserFactory
+from chatbot.infrastructure.adapters.ingestion.text_parser import TextParserAdapter
 from chatbot.infrastructure.adapters.ingestion.xlsx_parser import XlsxParserAdapter
 
 
@@ -60,7 +61,7 @@ def test_xlsx_parser_uses_sheet_as_table() -> None:
 
 def test_parser_factory_rejects_unknown() -> None:
     with pytest.raises(UnsupportedDocumentError):
-        DocumentParserFactory().get_parser("notes.txt")
+        DocumentParserFactory().get_parser("notes.exe")
 
 
 def test_parser_factory_resolves_extensions() -> None:
@@ -68,3 +69,14 @@ def test_parser_factory_resolves_extensions() -> None:
     assert factory.get_parser("a.pdf").supports("a.pdf")
     assert factory.get_parser("a.docx").supports("a.docx")
     assert factory.get_parser("a.xlsx").supports("a.xlsx")
+    assert factory.get_parser("notes.txt").supports("notes.txt")
+    assert factory.get_parser("readme.md").supports("readme.md")
+
+
+def test_text_parser_reads_markdown() -> None:
+    parsed = TextParserAdapter().parse(
+        filename="apuntes.md",
+        data="# Título\n\nUn párrafo.".encode(),
+    )
+    assert parsed.format.value == "md"
+    assert "Título" in parsed.blocks[0].text

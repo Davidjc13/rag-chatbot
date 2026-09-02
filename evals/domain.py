@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any, Literal
 
 BIOASQ_DATASET_ID = "bioasq"
-EvalRunStatus = Literal["pending", "running", "completed", "failed"]
+EvalRunStatus = Literal["pending", "queued", "running", "completed", "failed", "cancelled"]
 EvalRunMode = Literal["retrieval", "generate", "ragas", "deepeval", "full"]
 
 

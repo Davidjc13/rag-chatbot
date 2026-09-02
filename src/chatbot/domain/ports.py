@@ -14,7 +14,7 @@ from chatbot.domain.documents import (
     RetrievedChunk,
 )
 from chatbot.domain.study import StudyProfile, StudyQuestion, StudySession
-from chatbot.domain.entities import Conversation, Message
+from chatbot.domain.entities import Conversation, ConversationSummary, Message
 from chatbot.domain.llm_stream import LLMDelta
 
 
@@ -191,6 +191,8 @@ class ConversationRepositoryPort(Protocol):
 
     async def delete(self, conversation_id: str) -> None: ...
 
+    async def list(self, *, limit: int = 50) -> list[ConversationSummary]: ...
+
 
 class PromptRepositoryPort(Protocol):
     """Puerto de persistencia de prompts markdown (system / user_message)."""
@@ -241,6 +243,16 @@ class VectorStorePort(ABC):
         document_id: str | None = None,
     ) -> list[RetrievedChunk]:
         """Busca los chunks más similares al embedding de consulta."""
+
+    @abstractmethod
+    async def keyword_search(
+        self,
+        query: str,
+        *,
+        top_k: int,
+        document_id: str | None = None,
+    ) -> list[RetrievedChunk]:
+        """Búsqueda léxica. Vacío si el backend no la soporta."""
 
     @abstractmethod
     async def get_chunks_by_document(self, document_id: str) -> list[DocumentChunk]:

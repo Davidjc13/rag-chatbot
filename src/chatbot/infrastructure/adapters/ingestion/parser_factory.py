@@ -6,6 +6,7 @@ from chatbot.domain.exceptions import UnsupportedDocumentError
 from chatbot.domain.ports import DocumentParserPort
 from chatbot.infrastructure.adapters.ingestion.docx_parser import DocxParserAdapter
 from chatbot.infrastructure.adapters.ingestion.pdf_parser import PdfParserAdapter
+from chatbot.infrastructure.adapters.ingestion.text_parser import TextParserAdapter
 from chatbot.infrastructure.adapters.ingestion.xlsx_parser import XlsxParserAdapter
 
 
@@ -17,6 +18,7 @@ class DocumentParserFactory:
             PdfParserAdapter(),
             DocxParserAdapter(),
             XlsxParserAdapter(),
+            TextParserAdapter(),
         ]
 
     def get_parser(self, filename: str) -> DocumentParserPort:
@@ -26,4 +28,4 @@ class DocumentParserFactory:
         raise UnsupportedDocumentError(filename)
 
     def supported_extensions(self) -> list[str]:
-        return [".pdf", ".docx", ".xlsx", ".xlsm"]
+        return [".pdf", ".docx", ".xlsx", ".xlsm", ".txt", ".md", ".csv"]

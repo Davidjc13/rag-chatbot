@@ -59,6 +59,10 @@ def test_empty_optional_becomes_none(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_stt_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     env = Env.get_instance()
     assert env.stt_enabled is True
+    assert env.auth_enabled is False
+    assert env.cors_origins == ["*"]
+    assert env.rag_hybrid is True
+    assert env.chat_max_history_messages == 16
     assert env.stt_provider == "faster_whisper"
     assert env.stt_model == "base"
     assert env.stt_language == "es"

@@ -192,13 +192,6 @@ class EvalService:
             run_b_id=run_b.id,
             experiment_id=experiment_id,
         )
-
-        asyncio.create_task(
-            self._execute_run(run_a.id, suite=suite, config=config_a, cache_dir=None, use_db=True)
-        )
-        asyncio.create_task(
-            self._execute_run(run_b.id, suite=suite, config=config_b, cache_dir=None, use_db=True)
-        )
         return experiment
 
     async def start_run(
@@ -227,29 +220,25 @@ class EvalService:
 
         _validate_run_config(run_config)
         resolved_dataset = dataset_id or (suite.dataset_id if suite else BIOASQ_DATASET_ID)
+        config_payload = _config_to_dict(run_config)
+        config_payload["use_db"] = use_db
+        if cache_dir is not None:
+            config_payload["cache_dir"] = str(cache_dir)
 
-        run = await self._repo.create_run(
+        return await self._repo.create_run(
             dataset_id=resolved_dataset,
             suite_id=suite_id,
             name=name or (suite.name if suite else None),
             mode=_resolve_mode(run_config),
-            config=_config_to_dict(run_config),
+            config=config_payload,
             experiment_id=experiment_id,
             variant_label=variant_label,
         )
 
-        asyncio.create_task(
-            self._execute_run(
-                run.id,
-                suite=suite,
-                config=run_config,
-                cache_dir=cache_dir,
-                use_db=use_db,
-            )
-        )
-        return run
+    async def cancel_run(self, run_id: str) -> bool:
+        return await self._repo.cancel_queued_run(run_id)
 
-    async def _execute_run(
+    async def execute_run(  # pylint: disable=too-many-arguments,too-many-locals
         self,
         run_id: str,
         *,
@@ -257,10 +246,22 @@ class EvalService:
         config: EvalSuiteConfig,
         cache_dir: str | Path | None,
         use_db: bool,
+        lease_seconds: int = 300,
     ) -> None:
         if run_id in self._running:
             return
         self._running.add(run_id)
+        stop_heartbeat = asyncio.Event()
+
+        async def _heartbeat() -> None:
+            interval = max(15.0, lease_seconds / 4)
+            while not stop_heartbeat.is_set():
+                try:
+                    await asyncio.wait_for(stop_heartbeat.wait(), timeout=interval)
+                except TimeoutError:
+                    await self._repo.extend_lease(run_id, lease_seconds=lease_seconds)
+
+        heartbeat_task = asyncio.create_task(_heartbeat())
         dataset_id = suite.dataset_id if suite else BIOASQ_DATASET_ID
         try:
             await self._repo.update_run_status(run_id, status="running")
@@ -343,6 +344,8 @@ class EvalService:
                 finished=True,
             )
         finally:
+            stop_heartbeat.set()
+            heartbeat_task.cancel()
             self._running.discard(run_id)
 
     async def _load_samples(
@@ -364,7 +367,9 @@ class EvalService:
                 from evals.bioasq import sanitize_samples_against_corpus
 
                 status = await self._repo.get_dataset_status(dataset_id)
-                skipped = int((status.import_stats if status else {}).get("skipped_nan_passages", 0))
+                skipped = int(
+                    (status.import_stats if status else {}).get("skipped_nan_passages", 0)
+                )
                 samples, stats = sanitize_samples_against_corpus(
                     samples, set(corpus), skipped_nan_passages=skipped
                 )

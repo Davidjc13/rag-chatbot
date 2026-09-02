@@ -1,12 +1,21 @@
-import { deleteDocument, listDocuments, uploadDocument } from "./api.js";
+import {
+  deleteDocument,
+  listDocumentChunks,
+  listDocuments,
+  replaceDocument,
+  uploadDocument,
+} from "./api.js";
 
-const ALLOWED_EXT = new Set([".pdf", ".docx", ".xlsx", ".xlsm"]);
+const ALLOWED_EXT = new Set([".pdf", ".docx", ".xlsx", ".xlsm", ".txt", ".md", ".csv"]);
 
 const tbody = document.getElementById("docs-body");
 const form = document.getElementById("upload-form");
 const fileInput = document.getElementById("file-input");
 const statusEl = document.getElementById("status");
 const uploadBtn = document.getElementById("upload-btn");
+const chunksPanel = document.getElementById("chunks-panel");
+const chunksTitle = document.getElementById("chunks-title");
+const chunksBody = document.getElementById("chunks-body");
 
 function setStatus(text, isError = false) {
   statusEl.textContent = text || "";
@@ -45,12 +54,35 @@ function renderRows(documents) {
       <td>${escapeHtml(formatDate(doc.created_at))}</td>
       <td class="actions"></td>
     `;
+    const actions = tr.querySelector(".actions");
+
+    const chunksBtn = document.createElement("button");
+    chunksBtn.type = "button";
+    chunksBtn.className = "secondary compact";
+    chunksBtn.textContent = "Chunks";
+    chunksBtn.addEventListener("click", () => onShowChunks(doc.id, doc.filename));
+
+    const replaceLabel = document.createElement("label");
+    replaceLabel.className = "replace-upload";
+    replaceLabel.textContent = "Reemplazar";
+    const replaceInput = document.createElement("input");
+    replaceInput.type = "file";
+    replaceInput.accept = fileInput?.accept || "";
+    replaceInput.hidden = true;
+    replaceInput.addEventListener("change", () => {
+      const file = replaceInput.files?.[0];
+      replaceInput.value = "";
+      if (file) void onReplace(doc.id, file);
+    });
+    replaceLabel.appendChild(replaceInput);
+
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "danger";
     btn.textContent = "Borrar";
     btn.addEventListener("click", () => onDelete(doc.id, doc.filename));
-    tr.querySelector(".actions").appendChild(btn);
+
+    actions.append(chunksBtn, replaceLabel, btn);
     tbody.appendChild(tr);
   }
 }
@@ -79,9 +111,54 @@ async function onDelete(id, filename) {
   try {
     await deleteDocument(id);
     setStatus(`Eliminado: ${filename}`);
+    if (chunksPanel) chunksPanel.hidden = true;
     await refresh();
   } catch (err) {
     setStatus(err.message || "No se pudo eliminar", true);
+  }
+}
+
+async function onReplace(id, file) {
+  const ext = extensionOf(file.name);
+  if (!ALLOWED_EXT.has(ext)) {
+    setStatus("Formato no permitido. Usa PDF, DOCX, XLSX, XLSM, TXT, MD o CSV.", true);
+    return;
+  }
+  setStatus(`Reemplazando con ${file.name}…`);
+  try {
+    const result = await replaceDocument(id, file);
+    setStatus(`Re-ingerido: ${result.filename} (${result.chunk_count} chunks)`);
+    await refresh();
+  } catch (err) {
+    setStatus(err.message || "No se pudo reemplazar", true);
+  }
+}
+
+async function onShowChunks(id, filename) {
+  if (!chunksPanel || !chunksBody || !chunksTitle) return;
+  chunksTitle.textContent = `Chunks — ${filename}`;
+  chunksBody.textContent = "Cargando…";
+  chunksPanel.hidden = false;
+  try {
+    const data = await listDocumentChunks(id);
+    const chunks = data.chunks || [];
+    if (!chunks.length) {
+      chunksBody.textContent = "Este documento no tiene chunks.";
+      return;
+    }
+    chunksBody.innerHTML = "";
+    for (const chunk of chunks) {
+      const article = document.createElement("article");
+      article.className = "chunk-card";
+      const heading = document.createElement("h3");
+      heading.textContent = `#${chunk.index} · ${chunk.id}`;
+      const pre = document.createElement("pre");
+      pre.textContent = chunk.content;
+      article.append(heading, pre);
+      chunksBody.appendChild(article);
+    }
+  } catch (err) {
+    chunksBody.textContent = err.message || "No se pudieron cargar los chunks";
   }
 }
 
@@ -95,7 +172,7 @@ form.addEventListener("submit", async (event) => {
 
   const ext = extensionOf(file.name);
   if (!ALLOWED_EXT.has(ext)) {
-    setStatus("Formato no permitido. Usa PDF, DOCX, XLSX o XLSM.", true);
+    setStatus("Formato no permitido. Usa PDF, DOCX, XLSX, XLSM, TXT, MD o CSV.", true);
     return;
   }
 

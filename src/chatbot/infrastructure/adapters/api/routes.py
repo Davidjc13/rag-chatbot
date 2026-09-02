@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+# pylint: disable=too-many-lines
+
 import json
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -31,7 +33,12 @@ from chatbot.infrastructure.adapters.api.mime_validation import validate_upload
 from chatbot.infrastructure.adapters.api.schemas import (
     ChatRequest,
     ChatResponse,
+    ConversationListResponse,
     ConversationResponse,
+    ConversationSummaryResponse,
+    ConversationUpdateRequest,
+    DocumentChunkResponse,
+    DocumentChunksResponse,
     DocumentListResponse,
     DocumentSummaryResponse,
     EvalABTestRequest,
@@ -66,7 +73,13 @@ from chatbot.infrastructure.adapters.api.schemas import (
     StudySessionResponse,
     TranscriptionResponse,
 )
-from evals.domain import EvalComparisonResult, EvalExperiment, EvalRunSummary, EvalSuite, EvalSuiteConfig
+from evals.domain import (
+    EvalComparisonResult,
+    EvalExperiment,
+    EvalRunSummary,
+    EvalSuite,
+    EvalSuiteConfig,
+)
 from evals.json_dataset import dataset_template_path
 
 _EVAL_STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -229,6 +242,28 @@ async def transcribe_audio(
 
 
 @router.get(
+    "/conversations",
+    response_model=ConversationListResponse,
+    tags=["chat"],
+)
+async def list_conversations(request: Request) -> ConversationListResponse:
+    service = _chat_service(request)
+    items = await service.list_conversations()
+    return ConversationListResponse(
+        conversations=[
+            ConversationSummaryResponse(
+                id=item.id,
+                title=item.title,
+                updated_at=item.updated_at,
+                created_at=item.created_at,
+                preview=item.preview,
+            )
+            for item in items
+        ]
+    )
+
+
+@router.get(
     "/conversations/{conversation_id}",
     response_model=ConversationResponse,
     tags=["chat"],
@@ -238,6 +273,7 @@ async def get_conversation(conversation_id: str, request: Request) -> Conversati
     conversation = await service.get_conversation(conversation_id)
     return ConversationResponse(
         id=conversation.id,
+        title=conversation.title,
         messages=[
             MessageResponse(
                 role=m.role.value,
@@ -247,7 +283,42 @@ async def get_conversation(conversation_id: str, request: Request) -> Conversati
             for m in conversation.messages
         ],
         created_at=conversation.created_at,
+        updated_at=conversation.updated_at,
     )
+
+
+@router.patch(
+    "/conversations/{conversation_id}",
+    response_model=ConversationResponse,
+    tags=["chat"],
+)
+async def rename_conversation(
+    conversation_id: str,
+    payload: ConversationUpdateRequest,
+    request: Request,
+) -> ConversationResponse:
+    service = _chat_service(request)
+    conversation = await service.rename_conversation(conversation_id, payload.title)
+    return ConversationResponse(
+        id=conversation.id,
+        title=conversation.title,
+        messages=[
+            MessageResponse(
+                role=m.role.value,
+                content=m.content,
+                created_at=m.created_at,
+            )
+            for m in conversation.messages
+        ],
+        created_at=conversation.created_at,
+        updated_at=conversation.updated_at,
+    )
+
+
+@router.delete("/conversations/{conversation_id}", status_code=204, tags=["chat"])
+async def delete_conversation(conversation_id: str, request: Request) -> None:
+    service = _chat_service(request)
+    await service.delete_conversation(conversation_id)
 
 
 @router.post("/documents", response_model=IngestionResponse, tags=["documents"])
@@ -265,6 +336,38 @@ async def ingest_document(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="purpose debe ser general o notes") from exc
     result = await service.ingest(filename=filename, data=data, purpose=doc_purpose)
+    return IngestionResponse(
+        document_id=result.document_id,
+        filename=result.filename,
+        format=result.format.value,
+        chunk_count=result.chunk_count,
+        purpose=result.purpose.value,
+    )
+
+
+@router.put("/documents/{document_id}", response_model=IngestionResponse, tags=["documents"])
+async def replace_document(
+    document_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+    purpose: str | None = Form(default=None),
+) -> IngestionResponse:
+    service = _ingestion_service(request)
+    data = await file.read()
+    filename = file.filename or "upload.bin"
+    validate_upload(filename=filename, content_type=file.content_type, data=data)
+    doc_purpose = DocumentPurpose.GENERAL
+    if purpose:
+        try:
+            doc_purpose = DocumentPurpose(purpose)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="purpose debe ser general o notes") from exc
+    result = await service.ingest(
+        filename=filename,
+        data=data,
+        purpose=doc_purpose,
+        document_id=document_id,
+    )
     return IngestionResponse(
         document_id=result.document_id,
         filename=result.filename,
@@ -302,6 +405,32 @@ async def list_documents(
     )
 
 
+@router.get(
+    "/documents/{document_id}/chunks",
+    response_model=DocumentChunksResponse,
+    tags=["documents"],
+)
+async def list_document_chunks(document_id: str, request: Request) -> DocumentChunksResponse:
+    service = _ingestion_service(request)
+    chunks = await service.list_document_chunks(document_id)
+    return DocumentChunksResponse(
+        document_id=document_id,
+        chunks=[
+            DocumentChunkResponse(
+                id=chunk.id,
+                index=int(chunk.metadata.get("chunk_index", idx)),
+                content=chunk.content,
+                metadata={
+                    key: value
+                    for key, value in chunk.metadata.items()
+                    if key != "embedding"
+                },
+            )
+            for idx, chunk in enumerate(chunks)
+        ],
+    )
+
+
 @router.delete("/documents/{document_id}", status_code=204, tags=["documents"])
 async def delete_document(document_id: str, request: Request) -> None:
     service = _ingestion_service(request)
@@ -334,7 +463,9 @@ def _study_session_response(session, *, reveal_answers: bool = False) -> StudySe
                 reference_answer=question.reference_answer if show_reference else None,
                 user_answer=question.user_answer,
                 score=question.score,
-                feedback=question.feedback if reveal_answers or session.mode.value == "quiz" else "",
+                feedback=question.feedback
+                if reveal_answers or session.mode.value == "quiz"
+                else "",
                 evaluated_at=question.evaluated_at,
             )
         )
@@ -781,6 +912,21 @@ async def delete_eval_run(run_id: str, request: Request) -> None:
     deleted = await service.delete_run(run_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Run no encontrado")
+
+
+@router.post("/evals/runs/{run_id}/cancel", response_model=EvalRunResponse, tags=["evals"])
+async def cancel_eval_run(run_id: str, request: Request) -> EvalRunResponse:
+    service = _eval_service(request)
+    cancelled = await service.cancel_run(run_id)
+    if not cancelled:
+        raise HTTPException(
+            status_code=409,
+            detail="Solo se pueden cancelar runs en cola",
+        )
+    run = await service.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run no encontrado")
+    return _run_to_response(run)
 
 
 @router.delete("/evals/runs", response_model=EvalClearResponse, tags=["evals"])

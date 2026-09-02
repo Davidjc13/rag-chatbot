@@ -1,13 +1,10 @@
-import { getConversation, listModels, streamChat } from "./api.js";
+import { deleteConversation, getConversation, listConversations, listModels, streamChat } from "./api.js";
 import { renderCitedHtml } from "./citations.js";
 import {
   createConversationId,
   getActiveConversationId,
-  loadConversationIndex,
-  removeConversation,
   setActiveConversationId,
-  setTitleFromFirstQuery,
-  upsertConversationMeta,
+  truncateTitle,
 } from "./conversations.js";
 import { initVoiceInput } from "./voice.js";
 
@@ -58,21 +55,22 @@ function escapeText(value) {
     .replaceAll('"', "&quot;");
 }
 
+/** @type {ConversationMeta[]} */
+let conversationIndex = [];
+
 function ensureActiveConversation() {
   if (conversationId) return conversationId;
   conversationId = createConversationId();
   setActiveConversationId(conversationId);
-  upsertConversationMeta({ id: conversationId });
-  renderConversationsPanel();
+  void refreshConversationsPanel();
   return conversationId;
 }
 
 function startNewConversation() {
   conversationId = createConversationId();
   setActiveConversationId(conversationId);
-  upsertConversationMeta({ id: conversationId });
   clearChatView();
-  renderConversationsPanel();
+  void refreshConversationsPanel();
   inputEl.focus();
 }
 
@@ -117,9 +115,27 @@ function renderReferencesPanel() {
   }
 }
 
+async function refreshConversationsPanel() {
+  if (!conversationsListEl) return;
+  try {
+    const data = await listConversations();
+    conversationIndex = (data.conversations || []).map((item) => ({
+      id: item.id,
+      title: item.title || truncateTitle(item.preview) || "Nueva conversación",
+      updatedAt: item.updated_at,
+      preview: item.preview,
+    }));
+  } catch (err) {
+    if (err.status !== 401) {
+      setStatus(err.message || "No se pudieron listar conversaciones", true);
+    }
+  }
+  renderConversationsPanel();
+}
+
 function renderConversationsPanel() {
   if (!conversationsListEl) return;
-  const items = loadConversationIndex();
+  const items = conversationIndex;
   conversationsListEl.innerHTML = "";
   if (conversationsEmptyEl) conversationsEmptyEl.hidden = items.length > 0;
 
@@ -141,24 +157,36 @@ function renderConversationsPanel() {
     const del = document.createElement("button");
     del.type = "button";
     del.className = "conversation-delete";
-    del.title = "Eliminar de la lista";
+    del.title = "Eliminar conversación";
     del.setAttribute("aria-label", "Eliminar conversación");
     del.textContent = "×";
     del.addEventListener("click", (event) => {
       event.stopPropagation();
       if (streaming) return;
-      removeConversation(item.id);
-      if (conversationId === item.id) {
-        const next = loadConversationIndex()[0];
-        if (next) void switchConversation(next.id);
-        else startNewConversation();
-      } else {
-        renderConversationsPanel();
-      }
+      void onDeleteConversation(item.id);
     });
 
     li.append(btn, del);
     conversationsListEl.appendChild(li);
+  }
+}
+
+async function onDeleteConversation(id) {
+  try {
+    await deleteConversation(id);
+  } catch (err) {
+    if (err.status !== 404) {
+      setStatus(err.message || "No se pudo eliminar la conversación", true);
+      return;
+    }
+  }
+  conversationIndex = conversationIndex.filter((item) => item.id !== id);
+  if (conversationId === id) {
+    const next = conversationIndex[0];
+    if (next) void switchConversation(next.id);
+    else startNewConversation();
+  } else {
+    renderConversationsPanel();
   }
 }
 
@@ -275,7 +303,6 @@ function updateAssistantBody(bodyEl, rawText) {
 async function switchConversation(id) {
   conversationId = id;
   setActiveConversationId(id);
-  upsertConversationMeta({ id });
   clearChatView();
   renderConversationsPanel();
   setStatus("Cargando conversación…");
@@ -291,14 +318,8 @@ async function switchConversation(id) {
     for (const msg of messages) {
       appendMessage(msg.role === "user" ? "user" : "assistant", msg.content);
     }
-    const firstUser = messages.find((msg) => msg.role === "user");
-    if (firstUser?.content) {
-      setTitleFromFirstQuery(id, firstUser.content);
-      renderConversationsPanel();
-    }
     setStatus("");
   } catch (err) {
-    // Conversación nueva aún no persistida en el servidor.
     if (err.status === 404) {
       showEmpty();
       setStatus("");
@@ -402,13 +423,6 @@ formEl.addEventListener("submit", async (event) => {
   if (!message || streaming) return;
 
   const activeId = ensureActiveConversation();
-  const meta = loadConversationIndex().find((item) => item.id === activeId);
-  if (!meta?.title || meta.title === "Nueva conversación") {
-    setTitleFromFirstQuery(activeId, message);
-  } else {
-    upsertConversationMeta({ id: activeId });
-  }
-  renderConversationsPanel();
 
   setStreamingUI(true);
   streamAbort = new AbortController();
@@ -430,14 +444,14 @@ formEl.addEventListener("submit", async (event) => {
     finishAgentSteps(article);
     if (rawAssistant.trim()) {
       updateAssistantBody(assistantBody, rawAssistant);
-      upsertConversationMeta({ id: activeId });
-      renderConversationsPanel();
+      void refreshConversationsPanel();
       setStatus("Generación detenida");
     } else {
       article.remove();
       if (!logEl.querySelector(".msg")) showEmpty();
       setStatus("Generación detenida");
     }
+    void refreshConversationsPanel();
   }
 
   try {
@@ -483,8 +497,7 @@ formEl.addEventListener("submit", async (event) => {
           if (sawThinking) finishThinking(article);
           finishAgentSteps(article);
           updateAssistantBody(assistantBody, rawAssistant);
-          upsertConversationMeta({ id: activeId });
-          renderConversationsPanel();
+          void refreshConversationsPanel();
           setStatus("");
         },
         onCancelled: handleCancelled,
@@ -528,7 +541,7 @@ inputEl.addEventListener("keydown", (event) => {
 });
 
 renderReferencesPanel();
-renderConversationsPanel();
+void refreshConversationsPanel();
 void loadModelSelector();
 
 voiceControls = initVoiceInput({

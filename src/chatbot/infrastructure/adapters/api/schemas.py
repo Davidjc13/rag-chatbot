@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -33,6 +33,36 @@ class ConversationResponse(BaseModel):
     id: str
     messages: list[MessageResponse]
     created_at: datetime
+    updated_at: datetime | None = None
+    title: str = "Nueva conversación"
+
+
+class ConversationSummaryResponse(BaseModel):
+    id: str
+    title: str
+    updated_at: datetime
+    created_at: datetime
+    preview: str = ""
+
+
+class ConversationListResponse(BaseModel):
+    conversations: list[ConversationSummaryResponse]
+
+
+class ConversationUpdateRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=256)
+
+
+class DocumentChunkResponse(BaseModel):
+    id: str
+    index: int
+    content: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class DocumentChunksResponse(BaseModel):
+    document_id: str
+    chunks: list[DocumentChunkResponse]
 
 
 class HealthResponse(BaseModel):

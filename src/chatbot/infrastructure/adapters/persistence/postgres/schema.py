@@ -199,6 +199,64 @@ async def init_schema(
                 """
             )
         )
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE conversations
+                ADD COLUMN IF NOT EXISTS title VARCHAR(256) NOT NULL DEFAULT 'Nueva conversación'
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE conversations
+                ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                UPDATE conversations
+                SET updated_at = created_at
+                WHERE updated_at IS NULL
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE eval_runs
+                ADD COLUMN IF NOT EXISTS lease_until TIMESTAMPTZ
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE eval_runs
+                ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE chunks
+                ADD COLUMN IF NOT EXISTS content_tsv tsvector
+                GENERATED ALWAYS AS (to_tsvector('simple', coalesce(content, ''))) STORED
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS chunks_content_tsv_gin
+                ON chunks USING GIN (content_tsv)
+                """
+            )
+        )
     logger.info("Esquema PostgreSQL inicializado")
 
 

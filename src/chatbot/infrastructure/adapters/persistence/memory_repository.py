@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from chatbot.domain.entities import Conversation
+from chatbot.domain.entities import Conversation, ConversationSummary, Role
 
 
 class InMemoryConversationRepository:
@@ -25,6 +25,31 @@ class InMemoryConversationRepository:
     async def delete(self, conversation_id: str) -> None:
         async with self._lock:
             self._store.pop(conversation_id, None)
+
+    async def list(self, *, limit: int = 50) -> list[ConversationSummary]:
+        async with self._lock:
+            items = sorted(
+                self._store.values(),
+                key=lambda conv: conv.updated_at,
+                reverse=True,
+            )
+            summaries: list[ConversationSummary] = []
+            for conv in items[: max(limit, 0)]:
+                preview = ""
+                for message in conv.messages:
+                    if message.role == Role.USER:
+                        preview = message.content[:160]
+                        break
+                summaries.append(
+                    ConversationSummary(
+                        id=conv.id,
+                        title=conv.title,
+                        updated_at=conv.updated_at,
+                        created_at=conv.created_at,
+                        preview=preview,
+                    )
+                )
+            return summaries
 
     async def clear(self) -> None:
         async with self._lock:

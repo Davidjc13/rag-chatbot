@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from evals.bioasq import (
@@ -500,7 +500,7 @@ class PostgresEvalRepository:
                     suite_id=suite_id,
                     dataset_id=dataset_id,
                     name=name,
-                    status="pending",
+                    status="queued",
                     mode=mode,
                     config=config,
                     experiment_id=experiment_id,
@@ -539,6 +539,76 @@ class PostgresEvalRepository:
             if finished:
                 row.finished_at = datetime.now(UTC)
             await session.commit()
+
+    async def requeue_expired_leases(self) -> int:
+        now = datetime.now(UTC)
+        async with self._session_factory() as session:
+            result = await session.execute(
+                update(EvalRunModel)
+                .where(
+                    EvalRunModel.status == "running",
+                    or_(
+                        EvalRunModel.lease_until.is_(None),
+                        EvalRunModel.lease_until < now,
+                    ),
+                )
+                .values(status="queued", lease_until=None)
+            )
+            await session.commit()
+            return int(result.rowcount or 0)
+
+    async def claim_next_run(self, *, lease_seconds: int) -> EvalRunSummary | None:
+        now = datetime.now(UTC)
+        lease_until = now + timedelta(seconds=max(lease_seconds, 30))
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(EvalRunModel)
+                .where(
+                    or_(
+                        EvalRunModel.status.in_(("queued", "pending")),
+                        and_(
+                            EvalRunModel.status == "running",
+                            or_(
+                                EvalRunModel.lease_until.is_(None),
+                                EvalRunModel.lease_until < now,
+                            ),
+                        ),
+                    )
+                )
+                .order_by(EvalRunModel.started_at.asc())
+                .with_for_update(skip_locked=True)
+                .limit(1)
+            )
+            row = result.scalar_one_or_none()
+            if row is None:
+                return None
+            row.status = "running"
+            row.lease_until = lease_until
+            row.heartbeat_at = now
+            run_id = row.id
+            await session.commit()
+        return await self.get_run(run_id)
+
+    async def extend_lease(self, run_id: str, *, lease_seconds: int) -> None:
+        now = datetime.now(UTC)
+        async with self._session_factory() as session:
+            row = await session.get(EvalRunModel, run_id)
+            if row is None or row.status != "running":
+                return
+            row.heartbeat_at = now
+            row.lease_until = now + timedelta(seconds=max(lease_seconds, 30))
+            await session.commit()
+
+    async def cancel_queued_run(self, run_id: str) -> bool:
+        async with self._session_factory() as session:
+            row = await session.get(EvalRunModel, run_id)
+            if row is None or row.status not in {"queued", "pending"}:
+                return False
+            row.status = "cancelled"
+            row.finished_at = datetime.now(UTC)
+            row.error = "Cancelado por el usuario"
+            await session.commit()
+            return True
 
     async def save_run_results(self, run_id: str, results: list[RagSampleResult]) -> None:
         async with self._session_factory() as session:

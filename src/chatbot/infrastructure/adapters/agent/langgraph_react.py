@@ -62,6 +62,9 @@ class LangGraphReactAgent(AgentRagPort):  # pylint: disable=too-many-instance-at
         max_steps: int,
         chat_model_factory: ChatModelFactory | None = None,
         chat_model: BaseChatModel | None = None,
+        rag_hybrid: bool = False,
+        rag_candidates: int = 20,
+        rag_hybrid_alpha: float = 0.7,
     ) -> None:
         if chat_model_factory is None and chat_model is None:
             raise ConfigurationError(
@@ -75,6 +78,9 @@ class LangGraphReactAgent(AgentRagPort):  # pylint: disable=too-many-instance-at
         self._max_steps = max(1, max_steps)
         self._chat_model_factory = chat_model_factory
         self._chat_model = chat_model
+        self._rag_hybrid = rag_hybrid
+        self._rag_candidates = rag_candidates
+        self._rag_hybrid_alpha = rag_hybrid_alpha
 
     def _resolve_model(self, model: str | None) -> BaseChatModel:
         if self._chat_model is not None:
@@ -104,6 +110,9 @@ class LangGraphReactAgent(AgentRagPort):  # pylint: disable=too-many-instance-at
                 vector_store=vector_store,
                 retrieval_backend=retrieval_backend,
                 top_k=top_k,
+                hybrid=self._rag_hybrid,
+                candidates=self._rag_candidates,
+                hybrid_alpha=self._rag_hybrid_alpha,
             )
             state.retrieval_ms += int((time.perf_counter() - started) * 1000)
             if not retrieved:

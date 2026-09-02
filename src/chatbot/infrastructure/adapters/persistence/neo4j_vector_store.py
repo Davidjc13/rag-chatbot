@@ -183,6 +183,16 @@ class Neo4jVectorStore:
                 break
         return retrieved
 
+    async def keyword_search(
+        self,
+        query: str,
+        *,
+        top_k: int,
+        document_id: str | None = None,
+    ) -> list[RetrievedChunk]:
+        del query, top_k, document_id
+        return []
+
     async def get_chunks_by_document(self, document_id: str) -> list[DocumentChunk]:
         async with self._driver.session(database=self._database) as session:
             result = await session.run(

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from chatbot.domain.documents import (
@@ -126,6 +126,46 @@ class PostgresVectorStore:
                             else None,
                         ),
                         score=score,
+                    )
+                )
+            return retrieved
+
+    async def keyword_search(
+        self,
+        query: str,
+        *,
+        top_k: int,
+        document_id: str | None = None,
+    ) -> list[RetrievedChunk]:
+        cleaned = (query or "").strip()
+        if top_k <= 0 or not cleaned:
+            return []
+        params: dict[str, object] = {"q": cleaned, "top_k": top_k}
+        sql = """
+            SELECT id, document_id, content, metadata,
+                   ts_rank_cd(content_tsv, plainto_tsquery('simple', :q)) AS rank
+            FROM chunks
+            WHERE content_tsv @@ plainto_tsquery('simple', :q)
+        """
+        if document_id:
+            sql += " AND document_id = :document_id"
+            params["document_id"] = document_id
+        sql += " ORDER BY rank DESC LIMIT :top_k"
+        async with self._session_factory() as session:
+            result = await session.execute(text(sql), params)
+            rows = result.mappings().all()
+            retrieved: list[RetrievedChunk] = []
+            for row in rows:
+                retrieved.append(
+                    RetrievedChunk(
+                        chunk=DocumentChunk(
+                            id=str(row["id"]),
+                            document_id=str(row["document_id"]),
+                            content=str(row["content"]),
+                            metadata=dict(row["metadata"] or {}),
+                            embedding=None,
+                        ),
+                        score=float(row["rank"] or 0.0),
                     )
                 )
             return retrieved

@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from chatbot.core.env import Env
 from chatbot.infrastructure.adapters.api.exception_handlers import register_exception_handlers
 from chatbot.infrastructure.adapters.api.routes import router
+from chatbot.infrastructure.adapters.api.security import SecurityMiddleware
 from chatbot.infrastructure.config.logging_config import setup_logging
 from chatbot.infrastructure.container import AppContainer
 
@@ -36,9 +37,11 @@ def create_app(container: AppContainer | None = None) -> FastAPI:
         app.state.study_service = app_container.study_service
         app.state.eval_service = app_container.eval_service
         app.state.transcription_service = app_container.transcription_service
+        worker_task = await app_container.start_eval_worker()
         try:
             yield
         finally:
+            await app_container.stop_eval_worker(worker_task)
             await app_container.shutdown()
 
     app = FastAPI(
@@ -47,13 +50,15 @@ def create_app(container: AppContainer | None = None) -> FastAPI:
         description="Chatbot RAG hexagonal con LiteLLM e ingestión de documentos",
         lifespan=lifespan,
     )
+    origins = env.cors_origins or ["*"]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=origins,
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(SecurityMiddleware, env=env)
     register_exception_handlers(app)
     app.include_router(router, prefix="/api/v1")
 

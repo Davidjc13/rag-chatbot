@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 
@@ -10,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from chatbot.application.services.chat_service import ChatService
 from chatbot.application.services.eval_service import EvalService
+from chatbot.application.services.eval_worker import EvalJobWorker
 from chatbot.application.services.guardrails import RuleBasedGuardrail
 from chatbot.application.services.ingestion_service import IngestionService
 from chatbot.application.services.study_service import StudyService
@@ -97,6 +99,7 @@ class AppContainer:  # pylint: disable=too-many-instance-attributes
         self.prompts: PromptRepositoryPort = PostgresPromptRepository(self.session_factory)
         self.eval_repository = PostgresEvalRepository(self.session_factory)
         self.eval_service = EvalService(repository=self.eval_repository, env=self.env)
+        self._eval_worker: EvalJobWorker | None = None
         embedding_api_base = self._resolve_embedding_api_base(self.env)
         self.embeddings: EmbeddingPort = LiteLLMEmbeddingAdapter(
             model=self.env.litellm_embedding_model,
@@ -154,6 +157,9 @@ class AppContainer:  # pylint: disable=too-many-instance-attributes
             rag_min_score=self.env.rag_min_score,
             max_steps=self.env.agent_max_steps,
             chat_model_factory=ChatModelFactory(self.env),
+            rag_hybrid=self.env.rag_hybrid,
+            rag_candidates=self.env.rag_candidates,
+            rag_hybrid_alpha=self.env.rag_hybrid_alpha,
         )
         self.chat_service = ChatService(
             llm=self.llm,
@@ -165,6 +171,10 @@ class AppContainer:  # pylint: disable=too-many-instance-attributes
             tracer=self.tracer,
             agent=self.agent,
             rag_top_k=self.env.rag_top_k,
+            max_history_messages=self.env.chat_max_history_messages,
+            rag_hybrid=self.env.rag_hybrid,
+            rag_candidates=self.env.rag_candidates,
+            rag_hybrid_alpha=self.env.rag_hybrid_alpha,
         )
         # Compat: rutas health leen settings.llm_provider
         self.settings = self.env
@@ -206,6 +216,27 @@ class AppContainer:  # pylint: disable=too-many-instance-attributes
         await seed_prompts(self.session_factory)
         if self.neo4j_vector_store is not None:
             await self.neo4j_vector_store.initialize()
+
+    async def start_eval_worker(self) -> asyncio.Task[None] | None:
+        if not self.env.eval_worker_enabled:
+            return None
+        self._eval_worker = EvalJobWorker(
+            service=self.eval_service,
+            repository=self.eval_repository,
+            env=self.env,
+        )
+        return asyncio.create_task(self._eval_worker.run_forever())
+
+    async def stop_eval_worker(self, task: asyncio.Task[None] | None) -> None:
+        if self._eval_worker is not None:
+            self._eval_worker.stop()
+        if task is None:
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
     async def shutdown(self) -> None:
         await self.http.aclose()

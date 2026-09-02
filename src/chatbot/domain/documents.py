@@ -13,6 +13,9 @@ class DocumentFormat(StrEnum):
     PDF = "pdf"
     DOCX = "docx"
     XLSX = "xlsx"
+    TXT = "txt"
+    MD = "md"
+    CSV = "csv"
 
 
 class DocumentPurpose(StrEnum):

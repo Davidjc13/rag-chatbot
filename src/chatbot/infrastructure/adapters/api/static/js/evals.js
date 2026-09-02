@@ -366,7 +366,9 @@ async function refreshRuns() {
   try {
     const data = await listEvalRuns();
     renderRuns(data.runs || []);
-    const hasRunning = (data.runs || []).some((r) => r.status === "running" || r.status === "pending");
+    const hasRunning = (data.runs || []).some(
+      (r) => r.status === "running" || r.status === "pending" || r.status === "queued",
+    );
     if (hasRunning && !pollTimer) {
       pollTimer = setInterval(refreshRuns, 5000);
     } else if (!hasRunning && pollTimer) {
